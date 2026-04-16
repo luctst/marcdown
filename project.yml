@@ -1,0 +1,83 @@
+name: Marcdown
+options:
+  bundleIdPrefix: com.luctst
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+  groupSortPosition: top
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    GCC_TREAT_WARNINGS_AS_ERRORS: YES
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    DEAD_CODE_STRIPPING: YES
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGNING_ALLOWED: NO
+
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: 2.2.1
+  MarcdownCore:
+    path: Packages/MarcdownCore
+  MarcdownEditor:
+    path: Packages/MarcdownEditor
+  MarcdownStyling:
+    path: Packages/MarcdownStyling
+
+targets:
+  Marcdown:
+    type: application
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: App/Sources
+      - path: App/Resources
+        type: folder
+        buildPhase: none
+    resources: []
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.luctst.marcdown
+        PRODUCT_NAME: Marcdown
+        INFOPLIST_FILE: App/Resources/Info.plist
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: App/Resources/Marcdown.entitlements
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+    dependencies:
+      - package: KeyboardShortcuts
+        product: KeyboardShortcuts
+      - package: MarcdownCore
+        product: MarcdownCore
+      - package: MarcdownEditor
+        product: MarcdownEditor
+    scheme:
+      testTargets: []
+      gatherCoverageData: false
+
+schemes:
+  Marcdown:
+    build:
+      targets:
+        Marcdown: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
