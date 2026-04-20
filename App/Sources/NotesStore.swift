@@ -26,6 +26,7 @@ final class NotesStore {
     private static let recentCap = 9
 
     private var streamTask: Task<Void, Never>?
+    private var hasBootstrapped = false
 
     init(index: NotesIndex = NotesIndex(), defaults: UserDefaults = .standard) {
         self.index = index
@@ -34,6 +35,9 @@ final class NotesStore {
     }
 
     func bootstrap() async {
+        guard !hasBootstrapped else { return }
+        hasBootstrapped = true
+
         do {
             try await index.start()
         } catch {
