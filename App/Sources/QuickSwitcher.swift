@@ -1,4 +1,3 @@
-import AppKit
 import MarcdownCore
 import SwiftUI
 
@@ -8,6 +7,7 @@ struct QuickSwitcher: View {
     let notes: [NoteSummary]
     let onOpen: (URL) -> Void
     let onDismiss: () -> Void
+    let currentNote: URL?
 
     @State private var query: String = ""
     @State private var selectedIndex: Int = 0
@@ -69,10 +69,21 @@ struct QuickSwitcher: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    if filtered.isEmpty {
+                        Text("No matching notes")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.tertiary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(.top, 40)
+                    }
                     ForEach(Array(filtered.enumerated()), id: \.element.note.id) { index, scored in
                         row(for: scored.note, isSelected: index == selectedIndex)
                             .id(scored.note.id)
                             .contentShape(Rectangle())
+                            .onHover { hovering in
+                                if hovering { selectedIndex = index }
+                            }
+                            .accessibilityAddTraits(.isButton)
                             .onTapGesture {
                                 onOpen(scored.note.id)
                             }
@@ -89,15 +100,28 @@ struct QuickSwitcher: View {
     }
 
     private func row(for note: NoteSummary, isSelected: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(note.title)
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(1)
-            if !note.preview.isEmpty {
-                Text(note.preview)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(note.title)
+                    .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
+                if !note.preview.isEmpty {
+                    Text(note.preview)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Text("\(note.characterCount) characters")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+            if note.id == currentNote {
+                Text("Current")
+                    .font(.system(size: 10, weight: .medium))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.2)))
             }
         }
         .padding(.horizontal, 14)
@@ -154,16 +178,3 @@ struct QuickSwitcher: View {
     }
 }
 
-/// Thin wrapper around `NSVisualEffectView` so the switcher has a proper
-/// translucent HUD background.
-private struct VisualEffectBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .hudWindow
-        view.blendingMode = .behindWindow
-        view.state = .active
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
-}
