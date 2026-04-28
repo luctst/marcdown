@@ -41,7 +41,7 @@ public actor NotesIndex {
     private var watcher: DirectoryWatcher?
 
     public init(directory: URL = NoteLocation.defaultDirectory, fileManager: FileManager = .default) {
-        self.directory = directory
+        self.directory = directory.resolvingSymlinksInPath()
         self.fileManager = fileManager
     }
 
