@@ -68,6 +68,12 @@ public struct NoteEditorView: NSViewRepresentable {
         // Initial styling pass.
         context.coordinator.restyle()
 
+        // The view isn't in a window yet, so defer first-responder until the
+        // next runloop tick when AppKit has attached it.
+        DispatchQueue.main.async {
+            textView.window?.makeFirstResponder(textView)
+        }
+
         return scrollView
     }
 
