@@ -59,10 +59,15 @@ final class TooltipModel {
 
     /// Update only the anchor for the in-flight or visible tip with this id.
     /// Used when the button frame changes mid-hover (layout shifts, scrolling).
+    /// Hot path: PreferenceKey callbacks fire on every layout tick, so we
+    /// avoid `orderFront` thrash by reusing the already-presented window and
+    /// only repositioning it.
     func updateAnchorIfNeeded(id: UUID, anchor: CGRect) {
-        if let tip = visible, tip.id == id, tip.anchor != anchor {
-            present(Tip(id: tip.id, label: tip.label, shortcut: tip.shortcut, anchor: anchor))
-        }
+        guard let tip = visible, tip.id == id, tip.anchor != anchor else { return }
+        let updated = Tip(id: tip.id, label: tip.label, shortcut: tip.shortcut, anchor: anchor)
+        visible = updated
+        guard let panel = NSApp.windows.first(where: { $0 is MarcdownPanel }) else { return }
+        controller.updateAnchor(anchorInPanel: anchor, panel: panel)
     }
 
     func requestHide(id: UUID) {
@@ -206,7 +211,10 @@ final class TooltipWindowController {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = false
-        window.level = .popUpMenu
+        // `.statusBar` (25) sits above the floating MarcdownPanel (`.floating` = 3)
+        // but below the host app's real menus, unlike `.popUpMenu` (101) which
+        // would draw over them.
+        window.level = .statusBar
         window.ignoresMouseEvents = true
         window.isReleasedWhenClosed = false
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -230,12 +238,40 @@ final class TooltipWindowController {
         )
         hosting.layoutSubtreeIfNeeded()
 
+        guard let frame = computeFrame(anchorInPanel: anchorInPanel, panel: panel) else { return }
+        window.setFrame(frame, display: true)
+        if !window.isVisible {
+            window.orderFront(nil)
+        }
+    }
+
+    /// Reposition an already-visible tooltip without re-rendering the hosting
+    /// view or calling `orderFront`. No-op if the window isn't visible.
+    func updateAnchor(anchorInPanel: CGRect, panel: NSWindow) {
+        guard window.isVisible else { return }
+        guard let frame = computeFrame(anchorInPanel: anchorInPanel, panel: panel) else { return }
+        window.setFrame(frame, display: true)
+    }
+
+    func hide() {
+        if window.isVisible {
+            window.orderOut(nil)
+        }
+    }
+
+    // MARK: - Private
+
+    /// Compute the screen-space frame for the tooltip given a button rect in
+    /// the SwiftUI `"panel"` coordinate space and the hosting panel window.
+    /// Uses the most recently `measuredSize` from the hosting view; falls back
+    /// to `hosting.fittingSize` if measurement hasn't yet fired.
+    private func computeFrame(anchorInPanel: CGRect, panel: NSWindow) -> NSRect? {
         // Prefer the GeometryReader-reported size; fall back to fittingSize
         // only if the preference hasn't fired yet (first frame edge case).
         let size = measuredSize.width > 0 && measuredSize.height > 0
             ? measuredSize
             : hosting.fittingSize
-        guard size.width > 0, size.height > 0 else { return }
+        guard size.width > 0, size.height > 0 else { return nil }
 
         // Convert the button rect from the SwiftUI "panel" coordinate space to
         // screen coordinates. SwiftUI's named coord space sits on the root,
@@ -246,7 +282,7 @@ final class TooltipWindowController {
         // route through `contentView.convert(_:to:)` — on a flipped contentView
         // that call performs its own y-flip and would cancel ours, producing
         // the bug where the tooltip sticks to the bottom-right of the window.
-        guard let contentView = panel.contentView else { return }
+        guard let contentView = panel.contentView else { return nil }
         let contentHeight = contentView.bounds.height
         // The "panel" named coordinate space is anchored at SwiftUI's safe-area
         // top, not at the contentView's top. Buttons rendered into the title-bar
@@ -293,18 +329,7 @@ final class TooltipWindowController {
             }
         }
 
-        let frame = NSRect(x: originX, y: originY, width: size.width, height: size.height)
-
-        window.setFrame(frame, display: true)
-        if !window.isVisible {
-            window.orderFront(nil)
-        }
-    }
-
-    func hide() {
-        if window.isVisible {
-            window.orderOut(nil)
-        }
+        return NSRect(x: originX, y: originY, width: size.width, height: size.height)
     }
 }
 

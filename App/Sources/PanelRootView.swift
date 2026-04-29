@@ -36,7 +36,12 @@ struct PanelRootView: View {
         .task {
             await store.bootstrap()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { notification in
+            guard notification.object as? MarcdownPanel != nil else { return }
+            tooltips.hideAll()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMoveNotification)) { notification in
+            guard notification.object as? MarcdownPanel != nil else { return }
             tooltips.hideAll()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
@@ -152,7 +157,7 @@ struct PanelRootView: View {
         ZStack {
             Color.black.opacity(0.18)
                 .ignoresSafeArea()
-                .onTapGesture { showCommandPalette = false }
+                .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { showCommandPalette = false } }
             CommandPalette(
                 actions: paletteActions,
                 onDismiss: { showCommandPalette = false }
