@@ -29,6 +29,7 @@ struct PanelRootView: View {
             }
         }
         .frame(minWidth: 480, minHeight: 320)
+        .ignoresSafeArea(.all, edges: .top)
         .task {
             await store.bootstrap()
         }

@@ -9,40 +9,73 @@ struct HeaderBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Spacer()
+            ZStack {
                 Text(title)
                     .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .center)
                 HStack(spacing: 4) {
+                    Spacer()
                     Button(action: onCommandPalette) {
                         Image(systemName: "command")
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel("Command Palette")
+                    .help("Command Palette (⌘K)")
                     Button(action: onQuickSwitcher) {
                         Image(systemName: "list.bullet")
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel("Browse Notes")
+                    .help("Browse Notes (⌘P)")
                     Button(action: onNewNote) {
                         Image(systemName: "plus")
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel("New Note")
+                    .help("New Note (⌘N)")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(IconButtonStyle())
             }
             .foregroundStyle(.secondary)
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .frame(height: 28)
             Divider()
+        }
+    }
+}
+
+/// Raycast-style icon button: 28×28 cell with a rounded hover/press background.
+/// Each button instance owns its own hover state, so hovers do not leak between adjacent cells.
+private struct IconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Wrapper(configuration: configuration)
+    }
+
+    private struct Wrapper: View {
+        let configuration: Configuration
+        @State private var isHovering = false
+
+        private var backgroundOpacity: Double {
+            if configuration.isPressed { return 0.14 }
+            if isHovering { return 0.08 }
+            return 0
+        }
+
+        var body: some View {
+            configuration.label
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(backgroundOpacity))
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .onHover { hovering in
+                    if hovering {
+                        withAnimation(.easeOut(duration: 0.08)) { isHovering = true }
+                    } else {
+                        isHovering = false
+                    }
+                }
         }
     }
 }
