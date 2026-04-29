@@ -9,6 +9,7 @@ struct PanelRootView: View {
     @State private var showSwitcher: Bool = false
     @State private var showCommandPalette: Bool = false
     @State private var deleteConfirmationInProgress: Bool = false
+    @State private var tooltips = TooltipModel()
 
     private var currentTitle: String {
         guard let editor = store.editor else { return "Marcdown" }
@@ -30,8 +31,16 @@ struct PanelRootView: View {
         }
         .frame(minWidth: 480, minHeight: 320)
         .ignoresSafeArea(.all, edges: .top)
+        .coordinateSpace(name: PanelCoordinateSpace.name)
+        .environment(tooltips)
         .task {
             await store.bootstrap()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+            tooltips.hideAll()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            tooltips.hideAll()
         }
     }
 

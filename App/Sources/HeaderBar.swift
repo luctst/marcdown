@@ -22,17 +22,17 @@ struct HeaderBar: View {
                         Image(systemName: "command")
                     }
                     .accessibilityLabel("Command Palette")
-                    .help("Command Palette (⌘K)")
+                    .raycastTooltip(label: "Command Palette", shortcut: ["⌘", "K"])
                     Button(action: onQuickSwitcher) {
                         Image(systemName: "list.bullet")
                     }
                     .accessibilityLabel("Browse Notes")
-                    .help("Browse Notes (⌘P)")
+                    .raycastTooltip(label: "Browse Notes", shortcut: ["⌘", "P"])
                     Button(action: onNewNote) {
                         Image(systemName: "plus")
                     }
                     .accessibilityLabel("New Note")
-                    .help("New Note (⌘N)")
+                    .raycastTooltip(label: "New Note", shortcut: ["⌘", "N"])
                 }
                 .buttonStyle(IconButtonStyle())
             }
