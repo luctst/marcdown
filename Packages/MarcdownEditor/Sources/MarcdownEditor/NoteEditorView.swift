@@ -33,7 +33,7 @@ public struct NoteEditorView: NSViewRepresentable {
         container.widthTracksTextView = true
         layoutManager.addTextContainer(container)
 
-        let textView = NSTextView(frame: .zero, textContainer: container)
+        let textView = FocusOnAttachTextView(frame: .zero, textContainer: container)
         textView.delegate = context.coordinator
         textView.allowsUndo = true
         textView.isRichText = false
@@ -67,6 +67,10 @@ public struct NoteEditorView: NSViewRepresentable {
         context.coordinator.install(textView: textView, storage: storage)
         // Initial styling pass.
         context.coordinator.restyle()
+
+        // First-responder is claimed exactly once by `FocusOnAttachTextView`
+        // when it first attaches to a window. This avoids stealing focus
+        // every time SwiftUI recreates the representable.
 
         return scrollView
     }
@@ -126,5 +130,20 @@ public struct NoteEditorView: NSViewRepresentable {
             styler.restyle(storage: storage, source: storage.string)
             text.wrappedValue = storage.string
         }
+    }
+}
+
+/// `NSTextView` that claims first responder exactly once on first window
+/// attach. SwiftUI may recreate the `NSViewRepresentable` mid-session; doing
+/// the focus dance unconditionally in `makeNSView` would steal focus from
+/// wherever the user was working.
+private final class FocusOnAttachTextView: NSTextView {
+    private var didClaimFocus = false
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard !didClaimFocus, let window else { return }
+        didClaimFocus = true
+        window.makeFirstResponder(self)
     }
 }

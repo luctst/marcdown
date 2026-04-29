@@ -6,12 +6,14 @@ public struct NoteSummary: Hashable, Sendable, Identifiable {
     public var title: String
     public var modifiedAt: Date
     public var preview: String
+    public var characterCount: Int
 
-    public init(id: URL, title: String, modifiedAt: Date, preview: String) {
+    public init(id: URL, title: String, modifiedAt: Date, preview: String, characterCount: Int) {
         self.id = id
         self.title = title
         self.modifiedAt = modifiedAt
         self.preview = preview
+        self.characterCount = characterCount
     }
 }
 
@@ -39,7 +41,7 @@ public actor NotesIndex {
     private var watcher: DirectoryWatcher?
 
     public init(directory: URL = NoteLocation.defaultDirectory, fileManager: FileManager = .default) {
-        self.directory = directory
+        self.directory = directory.resolvingSymlinksInPath()
         self.fileManager = fileManager
     }
 
@@ -122,6 +124,22 @@ public actor NotesIndex {
         refresh()
     }
 
+    /// Duplicates the file at `url` with the given `body`, creating a new
+    /// file named `copy-of-<originalStem>.md`.
+    @discardableResult
+    public func duplicate(url: URL, body: String) async throws -> URL {
+        let originalStem = url.deletingPathExtension().lastPathComponent
+        let slug = Self.slugify("copy-of-\(originalStem)")
+        let target = try uniqueURL(forSlug: slug)
+        do {
+            try body.write(to: target, atomically: true, encoding: .utf8)
+        } catch {
+            throw IndexError.createFailed(target, underlying: String(describing: error))
+        }
+        refresh()
+        return target
+    }
+
     /// Renames the file to `newName.md` (slugified), handling collisions by
     /// appending `-2`, `-3`, etc. Returns the new URL.
     @discardableResult
@@ -199,8 +217,9 @@ public actor NotesIndex {
             let body = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
             let title = Note.extractTitle(from: body) ?? url.deletingPathExtension().lastPathComponent
             let preview = Self.makePreview(from: body)
+            let characterCount = body.count
             summaries.append(
-                NoteSummary(id: url, title: title, modifiedAt: modifiedAt, preview: preview)
+                NoteSummary(id: url, title: title, modifiedAt: modifiedAt, preview: preview, characterCount: characterCount)
             )
         }
         summaries.sort { $0.modifiedAt > $1.modifiedAt }

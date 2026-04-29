@@ -131,6 +131,16 @@ final class NotesStore {
         }
     }
 
+    func duplicateCurrent() async {
+        guard let current = currentNote, let body = editor?.text else { return }
+        do {
+            let newURL = try await index.duplicate(url: current, body: body)
+            open(newURL)
+        } catch {
+            // Swallow: same pattern as newNote()
+        }
+    }
+
     /// 1-based: ⌘1 → most recent, ⌘9 → oldest recent.
     func jumpToRecent(_ oneBasedIndex: Int) {
         let zeroBased = oneBasedIndex - 1

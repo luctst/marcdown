@@ -1,20 +1,24 @@
-import MarcdownCore
 import SwiftUI
 
-/// Command-palette style note switcher. Shown as an overlay inside the panel
-/// when the user presses ⌘P.
-struct QuickSwitcher: View {
-    let notes: [NoteSummary]
-    let onOpen: (URL) -> Void
+@MainActor
+struct PaletteAction: Identifiable {
+    let id: String
+    let title: String
+    let icon: String
+    let shortcutLabel: String
+    let handler: @MainActor () -> Void
+}
+
+struct CommandPalette: View {
+    let actions: [PaletteAction]
     let onDismiss: () -> Void
-    let currentNote: URL?
 
     @State private var query: String = ""
     @State private var selectedIndex: Int = 0
     @FocusState private var queryFieldFocused: Bool
 
-    private var filtered: [ScoredNote] {
-        QuickSwitcher.filter(notes: notes, query: query)
+    private var filtered: [PaletteAction] {
+        CommandPalette.filter(actions: actions, query: query)
     }
 
     var body: some View {
@@ -41,7 +45,7 @@ struct QuickSwitcher: View {
         HStack {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("Find a note", text: $query)
+            TextField("Search for actions...", text: $query)
                 .textFieldStyle(.plain)
                 .focused($queryFieldFocused)
                 .onSubmit { commitSelection() }
@@ -70,22 +74,23 @@ struct QuickSwitcher: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if filtered.isEmpty {
-                        Text("No matching notes")
+                        Text("No matching actions")
                             .font(.system(size: 13))
                             .foregroundStyle(.tertiary)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .padding(.top, 40)
                     }
-                    ForEach(Array(filtered.enumerated()), id: \.element.note.id) { index, scored in
-                        row(for: scored.note, isSelected: index == selectedIndex)
-                            .id(scored.note.id)
+                    ForEach(Array(filtered.enumerated()), id: \.element.id) { index, action in
+                        row(for: action, isSelected: index == selectedIndex)
+                            .id(action.id)
                             .contentShape(Rectangle())
                             .onHover { hovering in
                                 if hovering { selectedIndex = index }
                             }
                             .accessibilityAddTraits(.isButton)
                             .onTapGesture {
-                                onOpen(scored.note.id)
+                                action.handler()
+                                onDismiss()
                             }
                     }
                 }
@@ -93,36 +98,25 @@ struct QuickSwitcher: View {
             .onChange(of: selectedIndex) { _, newValue in
                 guard filtered.indices.contains(newValue) else { return }
                 withAnimation(.easeOut(duration: 0.08)) {
-                    proxy.scrollTo(filtered[newValue].note.id, anchor: .center)
+                    proxy.scrollTo(filtered[newValue].id, anchor: .center)
                 }
             }
         }
     }
 
-    private func row(for note: NoteSummary, isSelected: Bool) -> some View {
+    private func row(for action: PaletteAction, isSelected: Bool) -> some View {
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(note.title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .lineLimit(1)
-                if !note.preview.isEmpty {
-                    Text(note.preview)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Text("\(note.characterCount) characters")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
+            Image(systemName: action.icon)
+                .frame(width: 20)
+            Text(action.title)
+                .font(.system(size: 13))
             Spacer()
-            if note.id == currentNote {
-                Text("Current")
-                    .font(.system(size: 10, weight: .medium))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.accentColor.opacity(0.2)))
-            }
+            Text(action.shortcutLabel)
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(.quaternary))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -138,43 +132,16 @@ struct QuickSwitcher: View {
 
     private func commitSelection() {
         guard filtered.indices.contains(selectedIndex) else { return }
-        onOpen(filtered[selectedIndex].note.id)
+        filtered[selectedIndex].handler()
+        onDismiss()
     }
 
     // MARK: - Filtering
 
-    struct ScoredNote: Equatable {
-        let note: NoteSummary
-        let score: Int
-    }
-
-    static func filter(notes: [NoteSummary], query: String) -> [ScoredNote] {
+    static func filter(actions: [PaletteAction], query: String) -> [PaletteAction] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty {
-            // No query: preserve modifiedAt-desc order from the index.
-            return notes.map { ScoredNote(note: $0, score: 0) }
-        }
+        if trimmed.isEmpty { return actions }
         let needle = trimmed.lowercased()
-        var results: [ScoredNote] = []
-        for note in notes {
-            let title = note.title.lowercased()
-            let preview = note.preview.lowercased()
-
-            var score = 0
-            if title == needle { score += 100 }
-            if title.hasPrefix(needle) { score += 40 }
-            if title.contains(needle) { score += 20 }
-            if preview.contains(needle) { score += 5 }
-
-            if score > 0 {
-                results.append(ScoredNote(note: note, score: score))
-            }
-        }
-        results.sort {
-            if $0.score != $1.score { return $0.score > $1.score }
-            return $0.note.modifiedAt > $1.note.modifiedAt
-        }
-        return results
+        return actions.filter { $0.title.lowercased().contains(needle) }
     }
 }
-
