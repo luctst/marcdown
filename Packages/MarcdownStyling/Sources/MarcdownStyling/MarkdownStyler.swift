@@ -30,10 +30,19 @@ public final class MarkdownStyler {
     /// the caller can avoid an extra `String` materialization on every
     /// keystroke when they already have the source on hand.
     ///
+    /// `revealedLineRange`, when non-nil, identifies a single line (typically
+    /// the line containing the user's caret) whose syntax markers must NOT be
+    /// concealed even if they would otherwise qualify. This is what powers the
+    /// Bear/Typora reveal-on-cursor behavior. `nil` means "conceal everywhere".
+    ///
     /// Wrapped in `beginEditing()`/`endEditing()` so layout is updated once and
     /// the cursor / selection is preserved. Only attributes are mutated; the
     /// character contents are never touched.
-    public func restyle(storage: NSTextStorage, source: String) {
+    public func restyle(
+        storage: NSTextStorage,
+        source: String,
+        revealedLineRange: NSRange? = nil
+    ) {
         let document = Document(parsing: source)
         let index = LineOffsetIndex(source: source)
         let fullRange = NSRange(location: 0, length: storage.length)
@@ -42,12 +51,19 @@ public final class MarkdownStyler {
         // Reset to a clean baseline before walking the AST so stale attributes
         // from a previous pass don't leak through.
         storage.setAttributes(baseAttributes, range: fullRange)
+        // `setAttributes` already clears `.marcdownConcealed`, but be explicit
+        // — if a future change adds another reset path that uses `addAttributes`
+        // instead, we want the conceal flag explicitly stripped here.
+        if fullRange.length > 0 {
+            storage.removeAttribute(.marcdownConcealed, range: fullRange)
+        }
 
         var walker = StyleWalker(
             storage: storage,
             theme: theme,
             baseFont: baseFont,
-            index: index
+            index: index,
+            revealedLineRange: revealedLineRange
         )
         walker.visit(document)
         storage.endEditing()
