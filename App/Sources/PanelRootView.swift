@@ -8,7 +8,6 @@ struct PanelRootView: View {
 
     @State private var showSwitcher: Bool = false
     @State private var showCommandPalette: Bool = false
-    @State private var deleteConfirmationInProgress: Bool = false
     @State private var tooltips = TooltipModel()
 
     private var currentTitle: String {
@@ -110,7 +109,7 @@ struct PanelRootView: View {
             }
             .keyboardShortcut("k", modifiers: [.command])
 
-            Button("Delete Current") { confirmDelete() }
+            Button("Delete Current") { deleteCurrentNote() }
                 .keyboardShortcut(.delete, modifiers: [.command, .shift])
 
             Button("Duplicate Note") { Task { await store.duplicateCurrent() } }
@@ -186,7 +185,7 @@ struct PanelRootView: View {
             },
             PaletteAction(id: "delete", title: "Delete Note", icon: "trash", shortcutLabel: "⇧⌘⌫") {
                 showCommandPalette = false
-                confirmDelete()
+                deleteCurrentNote()
             },
             PaletteAction(id: "prev-note", title: "Previous Note", icon: "chevron.left", shortcutLabel: "⇧⌘[") {
                 showCommandPalette = false
@@ -205,22 +204,9 @@ struct PanelRootView: View {
         NSApp.sendAction(#selector(NSTextView.performFindPanelAction(_:)), to: nil, from: menuItem)
     }
 
-    private func confirmDelete() {
-        guard !deleteConfirmationInProgress, store.currentNote != nil else { return }
-        deleteConfirmationInProgress = true
-        defer { deleteConfirmationInProgress = false }
-
-        let alert = NSAlert()
-        alert.messageText = "Move note to Trash?"
-        alert.informativeText = "You can restore it from the Finder Trash."
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
-        alert.alertStyle = .warning
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            Task { await store.deleteCurrent() }
-        }
+    private func deleteCurrentNote() {
+        guard store.currentNote != nil else { return }
+        Task { await store.deleteCurrent() }
     }
 }
 
