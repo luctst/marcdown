@@ -138,6 +138,26 @@ final class PanelController: NSObject, NSWindowDelegate {
             self.hide()
         }
     }
+
+    /// Called by AppKit on every tick of the user's live-resize gesture.
+    /// We clamp here instead of relying on `maxSize`/`minSize` so the
+    /// constraint is enforced against the screen the panel is *currently* on
+    /// — `maxSize` can be stale if the panel was dragged to a different
+    /// display since it was last refreshed.
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        let screen = sender.screen ?? NSScreen.main ?? NSScreen.screens.first
+        let screenWidth = screen?.visibleFrame.width ?? PanelSizeConstraints.maxWidth
+        let allowedMaxWidth = computeMaxWidth(screenWidth: screenWidth)
+        let clampedWidth = min(max(frameSize.width, PanelSizeConstraints.minWidth), allowedMaxWidth)
+        let clampedHeight = max(frameSize.height, PanelSizeConstraints.minHeight)
+        return NSSize(width: clampedWidth, height: clampedHeight)
+    }
+
+    /// Refresh the cached `maxSize` whenever the panel moves between displays
+    /// so subsequent reopen / programmatic resizes use the correct cap.
+    func windowDidChangeScreen(_ notification: Notification) {
+        updateMaxSizeForCurrentScreen()
+    }
 }
 
 /// `NSPanel` subclass that can become key (so the editor receives keystrokes)
