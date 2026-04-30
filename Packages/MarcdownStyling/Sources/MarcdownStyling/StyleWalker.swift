@@ -16,17 +16,22 @@ struct StyleWalker: @MainActor MarkupWalker {
     private let theme: StylingTheme
     private let baseFont: NSFont
     private let index: LineOffsetIndex
+    /// Sub-ranges that intersect this range are kept un-concealed (the line
+    /// the user's caret is on, in practice). `nil` means "conceal everywhere".
+    private let revealedLineRange: NSRange?
 
     init(
         storage: NSTextStorage,
         theme: StylingTheme,
         baseFont: NSFont,
-        index: LineOffsetIndex
+        index: LineOffsetIndex,
+        revealedLineRange: NSRange? = nil
     ) {
         self.storage = storage
         self.theme = theme
         self.baseFont = baseFont
         self.index = index
+        self.revealedLineRange = revealedLineRange
     }
 
     // MARK: - Blocks
@@ -40,7 +45,60 @@ struct StyleWalker: @MainActor MarkupWalker {
         let font = NSFontManager.shared
             .convert(.systemFont(ofSize: size, weight: .bold), toHaveTrait: .boldFontMask)
         addAttributes([.font: font], range: range)
+
+        // ATX heading marker concealment — only for ATX (`# `, `## ` …).
+        // Setext headings (`====` / `----` underlines) report a multi-line
+        // range whose first character is not `#`; the prefix scan below will
+        // simply find no `#` and skip.
+        if let markerRange = atxHeadingMarkerRange(in: range) {
+            applyConceal(to: markerRange)
+        }
+
         descendInto(heading)
+    }
+
+    /// Scans the leading characters of a heading's storage range for an ATX
+    /// marker: 1-6 `#` characters optionally followed by one space/tab (or
+    /// end-of-line/end-of-storage for an empty heading like `#\n`).
+    ///
+    /// Returns `nil` if no valid ATX marker is present (e.g. setext heading
+    /// or somehow malformed input).
+    private func atxHeadingMarkerRange(in headingRange: NSRange) -> NSRange? {
+        let storageString = storage.string as NSString
+        let upper = headingRange.location + headingRange.length
+        guard upper <= storageString.length else { return nil }
+
+        var hashCount = 0
+        var probe = headingRange.location
+        while probe < upper, hashCount < 6 {
+            let unit = storageString.character(at: probe)
+            // 0x23 == '#'
+            guard unit == 0x23 else { break }
+            hashCount += 1
+            probe += 1
+        }
+        guard hashCount >= 1 else { return nil }
+
+        // Per CommonMark, ATX hashes must be followed by a space, tab, or end
+        // of line — otherwise it's not a heading marker. swift-markdown's
+        // parser already enforced "this is a heading", so end-of-storage and
+        // newline are valid terminators here too.
+        var markerLength = hashCount
+        if probe < upper {
+            let trailing = storageString.character(at: probe)
+            // 0x20 space, 0x09 tab, 0x0A newline, 0x0D CR
+            if trailing == 0x20 || trailing == 0x09 {
+                markerLength += 1
+            } else if trailing == 0x0A || trailing == 0x0D {
+                // Empty heading: marker is just the hashes.
+            } else {
+                // Not a valid ATX marker — bail. Shouldn't happen given the
+                // parser said "heading", but be defensive.
+                return nil
+            }
+        }
+
+        return NSRange(location: headingRange.location, length: markerLength)
     }
 
     mutating func visitBlockQuote(_ blockQuote: BlockQuote) {
@@ -106,11 +164,17 @@ struct StyleWalker: @MainActor MarkupWalker {
 
     mutating func visitStrong(_ strong: Strong) {
         applyTraitOverInlineRange(strong, trait: .boldFontMask)
+        if let range = index.nsRange(strong.range) {
+            concealFixedDelimiters(in: range, length: 2)
+        }
         descendInto(strong)
     }
 
     mutating func visitEmphasis(_ emphasis: Emphasis) {
         applyTraitOverInlineRange(emphasis, trait: .italicFontMask)
+        if let range = index.nsRange(emphasis.range) {
+            concealFixedDelimiters(in: range, length: 1)
+        }
         descendInto(emphasis)
     }
 
@@ -126,6 +190,7 @@ struct StyleWalker: @MainActor MarkupWalker {
             ],
             range: range
         )
+        concealFixedDelimiters(in: range, length: 2)
         descendInto(strikethrough)
     }
 
@@ -138,6 +203,47 @@ struct StyleWalker: @MainActor MarkupWalker {
             ],
             range: range
         )
+        concealInlineCodeDelimiters(in: range)
+    }
+
+    /// Conceals leading and trailing delimiter sub-ranges of fixed length
+    /// (2 for `**`/`__`/`~~`, 1 for `*`/`_`).
+    private func concealFixedDelimiters(in nodeRange: NSRange, length: Int) {
+        guard nodeRange.length >= length * 2 else { return }
+        let opening = NSRange(location: nodeRange.location, length: length)
+        let closing = NSRange(
+            location: nodeRange.location + nodeRange.length - length,
+            length: length
+        )
+        applyConceal(to: opening)
+        applyConceal(to: closing)
+    }
+
+    /// Conceals the leading and trailing backtick runs of an inline code
+    /// span. cmark guarantees the closing run matches the opening run length.
+    private func concealInlineCodeDelimiters(in nodeRange: NSRange) {
+        let storageString = storage.string as NSString
+        guard nodeRange.length > 0 else { return }
+        let upper = nodeRange.location + nodeRange.length
+        guard upper <= storageString.length else { return }
+
+        // Count leading backticks.
+        var openingLength = 0
+        while
+            nodeRange.location + openingLength < upper,
+            storageString.character(at: nodeRange.location + openingLength) == 0x60 // '`'
+        {
+            openingLength += 1
+        }
+        guard openingLength > 0, nodeRange.length >= openingLength * 2 else { return }
+
+        let opening = NSRange(location: nodeRange.location, length: openingLength)
+        let closing = NSRange(
+            location: nodeRange.location + nodeRange.length - openingLength,
+            length: openingLength
+        )
+        applyConceal(to: opening)
+        applyConceal(to: closing)
     }
 
     mutating func visitLink(_ link: Link) {
@@ -261,6 +367,20 @@ struct StyleWalker: @MainActor MarkupWalker {
         let clamped = clampedToStorage(range)
         guard clamped.length > 0 else { return }
         storage.addAttributes(attrs, range: clamped)
+    }
+
+    /// Tags `subrange` with `.marcdownConcealed = true` so the editor's
+    /// layout delegate will suppress the corresponding glyphs. Skips when
+    /// `subrange` intersects `revealedLineRange` so the cursor's line stays
+    /// editable.
+    private func applyConceal(to subrange: NSRange) {
+        let clamped = clampedToStorage(subrange)
+        guard clamped.length > 0 else { return }
+        if let revealed = revealedLineRange,
+           NSIntersectionRange(clamped, revealed).length > 0 {
+            return
+        }
+        storage.addAttribute(.marcdownConcealed, value: true, range: clamped)
     }
 
     private func clampedToStorage(_ range: NSRange) -> NSRange {
