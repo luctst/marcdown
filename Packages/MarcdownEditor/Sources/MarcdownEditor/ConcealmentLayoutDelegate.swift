@@ -7,9 +7,8 @@ import MarcdownStyling
 /// reach layout.
 ///
 /// The disk file remains the source of truth — characters are never
-/// removed from `NSTextStorage`. The reveal-on-cursor behavior is achieved
-/// by the styler stripping the `.marcdownConcealed` flag from the active
-/// line; this delegate just trusts whatever is currently in storage.
+/// removed from `NSTextStorage`. The styler tags concealed ranges; this
+/// delegate trusts whatever is currently in storage.
 @MainActor
 final class ConcealmentLayoutDelegate: NSObject, NSLayoutManagerDelegate {
     nonisolated func layoutManager(
