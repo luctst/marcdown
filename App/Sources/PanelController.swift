@@ -1,6 +1,27 @@
 import AppKit
 import SwiftUI
 
+/// Hardcoded size constraints for the floating editor panel.
+/// Per PM scope, these are intentionally not user-configurable.
+enum PanelSizeConstraints {
+    static let maxWidth: CGFloat = 720
+    static let minWidth: CGFloat = 400
+    static let minHeight: CGFloat = 300
+    /// Margin reserved on small screens so the panel never spans edge-to-edge.
+    static let screenMargin: CGFloat = 16
+}
+
+/// Pure helper: clamps the desired max width to fit the current screen.
+///
+/// On screens narrower than `PanelSizeConstraints.maxWidth + screenMargin`,
+/// the result shrinks to `screenWidth - screenMargin`. The result is also
+/// floored at `PanelSizeConstraints.minWidth` so we never produce a max
+/// smaller than the min (which would be an invalid AppKit configuration).
+func computeMaxWidth(screenWidth: CGFloat) -> CGFloat {
+    let candidate = min(PanelSizeConstraints.maxWidth, screenWidth - PanelSizeConstraints.screenMargin)
+    return max(candidate, PanelSizeConstraints.minWidth)
+}
+
 /// Owns the lifecycle of the floating editor panel.
 @MainActor
 final class PanelController: NSObject, NSWindowDelegate {
@@ -11,7 +32,12 @@ final class PanelController: NSObject, NSWindowDelegate {
         let store = NotesStore()
         self.store = store
 
-        let initialFrame = NSRect(x: 0, y: 0, width: 720, height: 520)
+        let initialFrame = NSRect(
+            x: 0,
+            y: 0,
+            width: PanelSizeConstraints.maxWidth,
+            height: 520
+        )
         let panel = MarcdownPanel(
             contentRect: initialFrame,
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView, .hudWindow, .nonactivatingPanel],
@@ -23,10 +49,17 @@ final class PanelController: NSObject, NSWindowDelegate {
         hosting.translatesAutoresizingMaskIntoConstraints = false
         panel.contentView = hosting
 
+        // minSize is static and AppKit-native — set it once.
+        panel.minSize = NSSize(
+            width: PanelSizeConstraints.minWidth,
+            height: PanelSizeConstraints.minHeight
+        )
+
         self.panel = panel
         super.init()
 
         panel.delegate = self
+        updateMaxSizeForCurrentScreen()
         panel.center()
     }
 
@@ -39,6 +72,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func show() {
+        updateMaxSizeForCurrentScreen()
         recenterOnActiveScreen()
         // We're an .accessory app — to take key without bouncing focus to
         // another window, activate ignoring other apps and order front as key.
@@ -59,12 +93,43 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.setFrame(frame, display: false)
     }
 
+    /// `NSWindow.maxSize` is a static cap — it must be refreshed whenever
+    /// the active screen changes, since the small-screen clamp depends on it.
+    private func updateMaxSizeForCurrentScreen() {
+        let screen = NSScreen.main ?? NSScreen.screens.first
+        let screenWidth = screen?.visibleFrame.width ?? PanelSizeConstraints.maxWidth
+        panel.maxSize = NSSize(
+            width: computeMaxWidth(screenWidth: screenWidth),
+            height: CGFloat.greatestFiniteMagnitude
+        )
+    }
+
     // MARK: NSWindowDelegate
 
     nonisolated func windowDidResignKey(_ notification: Notification) {
         MainActor.assumeIsolated {
             self.hide()
         }
+    }
+
+    /// Called by AppKit on every tick of the user's live-resize gesture.
+    /// We clamp here instead of relying on `maxSize`/`minSize` so the
+    /// constraint is enforced against the screen the panel is *currently* on
+    /// — `maxSize` can be stale if the panel was dragged to a different
+    /// display since it was last refreshed.
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        let screen = sender.screen ?? NSScreen.main ?? NSScreen.screens.first
+        let screenWidth = screen?.visibleFrame.width ?? PanelSizeConstraints.maxWidth
+        let allowedMaxWidth = computeMaxWidth(screenWidth: screenWidth)
+        let clampedWidth = min(max(frameSize.width, PanelSizeConstraints.minWidth), allowedMaxWidth)
+        let clampedHeight = max(frameSize.height, PanelSizeConstraints.minHeight)
+        return NSSize(width: clampedWidth, height: clampedHeight)
+    }
+
+    /// Refresh the cached `maxSize` whenever the panel moves between displays
+    /// so subsequent reopen / programmatic resizes use the correct cap.
+    func windowDidChangeScreen(_ notification: Notification) {
+        updateMaxSizeForCurrentScreen()
     }
 }
 

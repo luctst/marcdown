@@ -63,18 +63,37 @@ targets:
       - package: MarcdownEditor
         product: MarcdownEditor
     scheme:
-      testTargets: []
+      testTargets:
+        - MarcdownAppTests
       gatherCoverageData: false
+
+  MarcdownAppTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: App/Tests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.luctst.marcdown.tests
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: Marcdown
 
 schemes:
   Marcdown:
     build:
       targets:
         Marcdown: all
+        MarcdownAppTests: [test]
     run:
       config: Debug
     test:
       config: Debug
+      targets:
+        - MarcdownAppTests
     profile:
       config: Release
     analyze:
