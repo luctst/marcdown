@@ -27,6 +27,11 @@ func computeMaxWidth(screenWidth: CGFloat) -> CGFloat {
 final class PanelController: NSObject, NSWindowDelegate {
     private let panel: MarcdownPanel
     private let store: NotesStore
+    /// The app that was frontmost the moment we activated. Restored when the
+    /// user explicitly dismisses the panel (Esc / hotkey toggle) so focus
+    /// returns to where they came from, instead of stranding them on the
+    /// desktop.
+    private var previouslyActiveApp: NSRunningApplication?
 
     override init() {
         let store = NotesStore()
@@ -65,7 +70,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     func toggle() {
         if panel.isVisible {
-            hide()
+            hide(restoreFocus: true)
         } else {
             show()
         }
@@ -74,14 +79,32 @@ final class PanelController: NSObject, NSWindowDelegate {
     func show() {
         updateMaxSizeForCurrentScreen()
         recenterOnActiveScreen()
+        // Snapshot the frontmost app so we can hand focus back when the user
+        // dismisses the panel. Skip if it's us — would cause an empty desktop
+        // on hide.
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        if frontmost != .current {
+            previouslyActiveApp = frontmost
+        }
         // We're an .accessory app — to take key without bouncing focus to
         // another window, activate ignoring other apps and order front as key.
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
     }
 
-    func hide() {
+    /// Hides the panel. When `restoreFocus` is true, brings the previously
+    /// active app back to the front; when false, leaves focus alone (the user
+    /// just clicked another app, so macOS has already moved focus there).
+    func hide(restoreFocus: Bool) {
+        // Capture and clear up-front: ordering out triggers windowDidResignKey
+        // re-entrantly, which calls hide(restoreFocus: false). If we cleared
+        // after orderOut, that re-entry would observe a stale value.
+        let target = restoreFocus ? previouslyActiveApp : nil
+        previouslyActiveApp = nil
         panel.orderOut(nil)
+        if let target, !target.isTerminated {
+            target.activate()
+        }
     }
 
     private func recenterOnActiveScreen() {
@@ -108,7 +131,8 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     nonisolated func windowDidResignKey(_ notification: Notification) {
         MainActor.assumeIsolated {
-            self.hide()
+            // The user already moved to another app — don't yank them back.
+            self.hide(restoreFocus: false)
         }
     }
 
@@ -160,7 +184,12 @@ final class MarcdownPanel: NSPanel {
     }
 
     override func cancelOperation(_ sender: Any?) {
-        // Esc — hide rather than close so we keep state in memory.
-        orderOut(nil)
+        // Esc — hide rather than close so we keep state in memory. Route
+        // through the controller so focus returns to the prior app.
+        if let controller = delegate as? PanelController {
+            controller.hide(restoreFocus: true)
+        } else {
+            orderOut(nil)
+        }
     }
 }
