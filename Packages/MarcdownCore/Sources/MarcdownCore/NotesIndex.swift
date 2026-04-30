@@ -38,6 +38,7 @@ public actor NotesIndex {
 
     private var cached: [NoteSummary] = []
     private var continuations: [UUID: AsyncStream<[NoteSummary]>.Continuation] = [:]
+    private var startTask: Task<Void, Error>?
     private var watcher: DirectoryWatcher?
 
     public init(directory: URL = NoteLocation.defaultDirectory, fileManager: FileManager = .default) {
@@ -47,6 +48,24 @@ public actor NotesIndex {
 
     /// Ensures the directory exists, performs the first scan, and starts watching.
     public func start() async throws {
+        if let startTask {
+            try await startTask.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            try await self.performStart()
+        }
+        startTask = task
+        do {
+            try await task.value
+        } catch {
+            startTask = nil
+            throw error
+        }
+    }
+
+    private func performStart() throws {
         try ensureDirectoryExists()
         cached = scanSync()
         startWatcher()

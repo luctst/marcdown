@@ -118,4 +118,100 @@ struct NotesIndexTests {
         }
         #expect(sawFile)
     }
+
+    @Test("calling start twice is a no-op and behavior is unchanged", .timeLimit(.minutes(1)))
+    func doubleStartIsIdempotent() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        // Pre-seed a file so we can verify the initial scan ran.
+        let preexisting = dir.appendingPathComponent("seed.md")
+        try "# Seed".write(to: preexisting, atomically: true, encoding: .utf8)
+
+        let index = NotesIndex(directory: dir)
+        defer { Task { await index.stop() } }
+
+        // Two sequential starts must both succeed without throwing.
+        try await index.start()
+        try await index.start()
+
+        // Snapshot still reflects the initial scan after the second start.
+        let snapshot = await index.snapshot()
+        #expect(snapshot.contains(where: { $0.id.lastPathComponent == "seed.md" }))
+
+        // The watcher is still wired up: a new external file shows up in updates().
+        // If a second watcher had been installed, we'd have two dispatch sources
+        // pointing at the same fd; this test catches catastrophic regressions
+        // (no watcher at all, or start() throwing on the second call).
+        let stream = await index.updates()
+        let newFile = dir.appendingPathComponent("after-second-start.md")
+        Task.detached {
+            try? await Task.sleep(for: .milliseconds(50))
+            try? "# Later".write(to: newFile, atomically: true, encoding: .utf8)
+        }
+
+        let deadline = Date().addingTimeInterval(2.0)
+        var sawFile = false
+        for await snapshot in stream {
+            if snapshot.contains(where: { $0.id.lastPathComponent == "after-second-start.md" }) {
+                sawFile = true
+                break
+            }
+            if Date() > deadline { break }
+        }
+        #expect(sawFile)
+    }
+
+    @Test("concurrent starts share the same task and both succeed")
+    func concurrentStartsShareTask() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let seed = dir.appendingPathComponent("seed.md")
+        try "# Seed".write(to: seed, atomically: true, encoding: .utf8)
+
+        let index = NotesIndex(directory: dir)
+        defer { Task { await index.stop() } }
+
+        // Two concurrent start() calls should both await the same underlying
+        // task and complete without error.
+        async let first: Void = index.start()
+        async let second: Void = index.start()
+        try await first
+        try await second
+
+        let snapshot = await index.snapshot()
+        #expect(snapshot.contains(where: { $0.id.lastPathComponent == "seed.md" }))
+    }
+
+    @Test("start retries successfully after a failed first attempt")
+    func startRetriesAfterFailure() async throws {
+        // Set up a parent dir, then put a *file* where the index expects a
+        // directory. createDirectory(withIntermediateDirectories: true) fails
+        // when an intermediate path component is a regular file, so the first
+        // start() will throw. After we remove the blocker, a second start()
+        // must succeed — proving the cached failed task was cleared.
+        let parent = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: parent) }
+
+        let blocker = parent.appendingPathComponent("blocker")
+        try Data().write(to: blocker)
+        let indexDir = blocker.appendingPathComponent("notes", isDirectory: true)
+
+        let index = NotesIndex(directory: indexDir)
+        defer { Task { await index.stop() } }
+
+        await #expect(throws: (any Error).self) {
+            try await index.start()
+        }
+
+        // Clear the blocker so the directory can be created on the retry.
+        try FileManager.default.removeItem(at: blocker)
+
+        try await index.start()
+
+        // Sanity-check the index is functional after the successful retry.
+        let created = try await index.create()
+        #expect(created.lastPathComponent == "Untitled 1.md")
+    }
 }
