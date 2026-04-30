@@ -61,27 +61,6 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.delegate = self
         updateMaxSizeForCurrentScreen()
         panel.center()
-
-        // Re-clamp maxSize when display config changes (resolution, monitor
-        // attach/detach, dock visibility). Selector-based observers play
-        // nicer with Swift 6 strict concurrency than block-based ones, and
-        // PanelController lives for the lifetime of the app so removal in
-        // `deinit` (which would be a cross-actor call, disallowed under
-        // Swift 6) is not needed.
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(screenParametersDidChange),
-            name: NSApplication.didChangeScreenParametersNotification,
-            object: nil
-        )
-    }
-
-    @objc private nonisolated func screenParametersDidChange(_ notification: Notification) {
-        // Notification is posted on the main thread by AppKit; hop to the
-        // MainActor explicitly so Swift 6 strict concurrency is satisfied.
-        MainActor.assumeIsolated {
-            self.updateMaxSizeForCurrentScreen()
-        }
     }
 
     func toggle() {
@@ -109,12 +88,6 @@ final class PanelController: NSObject, NSWindowDelegate {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
         let visible = screen.visibleFrame
         var frame = panel.frame
-        // If the panel is wider than the current screen allows, shrink it
-        // to the clamped max so recentering doesn't leave it off-screen.
-        let allowedMax = computeMaxWidth(screenWidth: visible.width)
-        if frame.width > allowedMax {
-            frame.size.width = allowedMax
-        }
         frame.origin.x = visible.midX - frame.width / 2
         frame.origin.y = visible.midY - frame.height / 2
         panel.setFrame(frame, display: false)
