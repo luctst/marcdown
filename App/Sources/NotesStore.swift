@@ -26,7 +26,7 @@ final class NotesStore {
     private static let recentCap = 9
 
     private var streamTask: Task<Void, Never>?
-    private var hasBootstrapped = false
+    private var bootstrapTask: Task<Void, Never>?
 
     init(index: NotesIndex = NotesIndex(), defaults: UserDefaults = .standard) {
         self.index = index
@@ -35,27 +35,32 @@ final class NotesStore {
     }
 
     func bootstrap() async {
-        guard !hasBootstrapped else { return }
-        hasBootstrapped = true
-
-        do {
-            try await index.start()
-        } catch {
-            // If the directory can't be created we have nothing to show; the
-            // empty-state path still produces a valid (empty) notes list.
+        if let bootstrapTask {
+            await bootstrapTask.value
+            return
         }
+        let task = Task { @MainActor in
+            do {
+                try await self.index.start()
+            } catch {
+                // If the directory can't be created we have nothing to show; the
+                // empty-state path still produces a valid (empty) notes list.
+            }
 
-        let initialSnapshot = await index.snapshot()
-        await apply(snapshot: initialSnapshot, ensureScratchIfEmpty: true)
+            let initialSnapshot = await self.index.snapshot()
+            await self.apply(snapshot: initialSnapshot, ensureScratchIfEmpty: true)
 
-        // Subscribe to live updates.
-        let stream = await index.updates()
-        streamTask?.cancel()
-        streamTask = Task { [weak self] in
-            for await snapshot in stream {
-                await self?.apply(snapshot: snapshot, ensureScratchIfEmpty: false)
+            // Subscribe to live updates.
+            let stream = await self.index.updates()
+            self.streamTask?.cancel()
+            self.streamTask = Task { [weak self] in
+                for await snapshot in stream {
+                    await self?.apply(snapshot: snapshot, ensureScratchIfEmpty: false)
+                }
             }
         }
+        bootstrapTask = task
+        await task.value
     }
 
     // No deinit cleanup needed: the streaming task captures `[weak self]`,
