@@ -8,6 +8,6 @@ import Foundation
 /// The styler tags ranges; the layout delegate consumes the tag. The
 /// attribute is intentionally `Bool` so a single `attribute(at:)` lookup
 /// in the layout delegate is enough — we never branch on a payload.
-public extension NSAttributedString.Key {
-    static let marcdownConcealed = NSAttributedString.Key("marcdownConcealed")
+extension NSAttributedString.Key {
+    public static let marcdownConcealed = NSAttributedString.Key("marcdownConcealed")
 }

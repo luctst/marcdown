@@ -238,7 +238,8 @@ public actor NotesIndex {
             let preview = Self.makePreview(from: body)
             let characterCount = body.count
             summaries.append(
-                NoteSummary(id: url, title: title, modifiedAt: modifiedAt, preview: preview, characterCount: characterCount)
+                NoteSummary(
+                    id: url, title: title, modifiedAt: modifiedAt, preview: preview, characterCount: characterCount)
             )
         }
         summaries.sort { $0.modifiedAt > $1.modifiedAt }
@@ -262,7 +263,7 @@ public actor NotesIndex {
         var lines: [Substring] = []
         for raw in body.split(separator: "\n", omittingEmptySubsequences: false) {
             let trimmed = raw.drop(while: { $0 == " " || $0 == "\t" })
-            if trimmed.hasPrefix("#") { continue } // skip any heading
+            if trimmed.hasPrefix("#") { continue }  // skip any heading
             if trimmed.isEmpty { continue }
             lines.append(trimmed)
             if lines.joined(separator: " ").count >= limit { break }

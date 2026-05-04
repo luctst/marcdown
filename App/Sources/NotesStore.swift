@@ -67,7 +67,6 @@ final class NotesStore {
     // so it stops naturally once this store is released. Cross-actor cleanup
     // from a `deinit` is not allowed under Swift 6 strict concurrency anyway.
 
-
     private func apply(snapshot: [NoteSummary], ensureScratchIfEmpty: Bool) async {
         // Empty-state: on first boot, seed a scratch note.
         if snapshot.isEmpty && ensureScratchIfEmpty {
@@ -93,7 +92,8 @@ final class NotesStore {
         if currentNote == nil, let first = snapshot.first {
             open(first.id)
         } else if let current = currentNote,
-                  !snapshot.contains(where: { $0.id == current }) {
+            !snapshot.contains(where: { $0.id == current })
+        {
             // The current note was deleted externally; fall back.
             let next = nextFallback(excluding: current)
             if let next {
@@ -159,16 +159,18 @@ final class NotesStore {
 
     func prev() {
         guard let current = currentNote,
-              let idx = notes.firstIndex(where: { $0.id == current }),
-              !notes.isEmpty else { return }
+            let idx = notes.firstIndex(where: { $0.id == current }),
+            !notes.isEmpty
+        else { return }
         let newIdx = (idx - 1 + notes.count) % notes.count
         open(notes[newIdx].id)
     }
 
     func next() {
         guard let current = currentNote,
-              let idx = notes.firstIndex(where: { $0.id == current }),
-              !notes.isEmpty else { return }
+            let idx = notes.firstIndex(where: { $0.id == current }),
+            !notes.isEmpty
+        else { return }
         let newIdx = (idx + 1) % notes.count
         open(notes[newIdx].id)
     }

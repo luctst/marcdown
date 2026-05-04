@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+
 @testable import MarcdownStyling
 
 @MainActor
@@ -19,7 +20,7 @@ struct MarkdownStylerTests {
         let headingFont = attributed.attribute(.font, at: headingRange.location, effectiveRange: nil) as? NSFont
         #expect(headingFont != nil)
         let headingSize = headingFont?.pointSize ?? 0
-        #expect(headingSize > 14) // larger than base
+        #expect(headingSize > 14)  // larger than base
 
         let traits = headingFont.map { NSFontManager.shared.traits(of: $0) } ?? []
         #expect(traits.contains(.boldFontMask))
@@ -72,15 +73,15 @@ struct MarkdownStylerTests {
     @Test func fencedCodeBlockIsFullyMonospaced() {
         let styler = MarkdownStyler()
         let source = """
-        Intro
+            Intro
 
-        ```
-        let x = 1
-        let y = 2
-        ```
+            ```
+            let x = 1
+            let y = 2
+            ```
 
-        Outro
-        """
+            Outro
+            """
         let attributed = styler.attributedString(for: source)
 
         let ns = source as NSString

@@ -177,4 +177,3 @@ struct QuickSwitcher: View {
         return results
     }
 }
-

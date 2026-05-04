@@ -224,9 +224,8 @@ struct StyleWalker: @MainActor MarkupWalker {
 
         // Count leading backticks.
         var openingLength = 0
-        while
-            nodeRange.location + openingLength < upper,
-            storageString.character(at: nodeRange.location + openingLength) == 0x60 // '`'
+        while nodeRange.location + openingLength < upper,
+            storageString.character(at: nodeRange.location + openingLength) == 0x60  // '`'
         {
             openingLength += 1
         }
@@ -334,7 +333,8 @@ struct StyleWalker: @MainActor MarkupWalker {
         }
         cursor = line.index(after: cursor)
 
-        return line.utf16.distance(from: line.utf16.startIndex, to: cursor.samePosition(in: line.utf16) ?? line.utf16.endIndex)
+        return line.utf16.distance(
+            from: line.utf16.startIndex, to: cursor.samePosition(in: line.utf16) ?? line.utf16.endIndex)
     }
 
     private func styleCheckbox(for listItem: ListItem, checkbox: Checkbox) {
