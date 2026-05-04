@@ -149,6 +149,59 @@ swift test --package-path Packages/MarcdownStyling
 - **MarkdownStylerTests** — heading/bold/italic/code/blockquote attribute application; idempotent restyle after edit.
 - **LineOffsetIndexTests** — UTF-8 multi-byte column conversion, out-of-bounds clamping, empty source handling.
 
+## CI / Release
+
+GitHub Actions runs on every PR and on tag pushes.
+
+### Continuous Integration (`.github/workflows/ci.yml`)
+
+Triggers on PRs into `main` and pushes to `main`. Two jobs run in parallel:
+
+- **`lint`** — hard-fails the PR on any violation. Runs `swift-format lint --strict` against `.swift-format`, `actionlint` on the workflow files, and `commitlint` against the conventional-commit style enforced in `commitlint.config.js`.
+- **`test-packages`** — matrix over `MarcdownCore` and `MarcdownStyling`. Each leg runs `swift test --package-path Packages/<name> --parallel`. `MarcdownEditor` has no test target and is excluded; `App/Tests/PanelControllerTests` requires the full app build and is currently exercised only at release time.
+
+To check formatting locally before pushing:
+
+```bash
+xcrun swift-format lint --strict --recursive --configuration .swift-format App/ Packages/MarcdownCore/Sources Packages/MarcdownCore/Tests Packages/MarcdownStyling/Sources Packages/MarcdownStyling/Tests Packages/MarcdownEditor/Sources
+
+# Or auto-fix:
+xcrun swift-format format --in-place --recursive --configuration .swift-format App/ Packages/...
+```
+
+### Releasing (`.github/workflows/release.yml`)
+
+Pushing a `vX.Y.Z` tag triggers the release pipeline:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The workflow then:
+
+1. Reads the version from the tag (no manual `Info.plist` edit).
+2. Imports the Developer ID certificate into a temporary keychain.
+3. Archives, exports, and signs a Release build.
+4. Notarizes via `xcrun notarytool` and staples the `.app`.
+5. Builds a DMG, signs and staples it, and computes its SHA-256.
+6. Publishes a GitHub Release with the DMG and `.sha256` attached. Pre-release tags (e.g. `v0.2.0-rc1`) are auto-flagged as pre-releases.
+
+### Required secrets
+
+Configure these in **Settings → Secrets and variables → Actions**:
+
+| Secret | What it is |
+| --- | --- |
+| `DEVELOPER_ID_CERT_P12` | Base64 of the `.p12` exported from Keychain Access. Generate with `base64 -i cert.p12 \| pbcopy`. |
+| `DEVELOPER_ID_CERT_PASSWORD` | Password used when exporting the `.p12`. |
+| `APPLE_ID` | Apple ID email associated with the Developer Program account. |
+| `APPLE_TEAM_ID` | 10-character team ID from [developer.apple.com → Membership](https://developer.apple.com/account/#!/membership). |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password from [appleid.apple.com → Sign-In & Security](https://appleid.apple.com). |
+| `SLACK_WEBHOOK_URL` | Incoming webhook for the `#marcdown-ci` Slack channel. Used to notify on workflow failures. |
+
+If any CI or release job fails, a summary message is posted to `#marcdown-ci` with a link to the failed run.
+
 ## Keyboard shortcuts
 
 ### Global (always available)
