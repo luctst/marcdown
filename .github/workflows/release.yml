@@ -1,0 +1,230 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, sign, notarize and publish DMG
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode_16.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.app
+          else
+            # Fall back to whichever Xcode 16.x is installed on the runner.
+            XCODE_PATH="$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n1 || true)"
+            if [ -z "$XCODE_PATH" ]; then
+              echo "No Xcode 16.x found on runner" >&2
+              exit 1
+            fi
+            sudo xcode-select -s "$XCODE_PATH"
+          fi
+          xcodebuild -version
+
+      - name: Cache Homebrew
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: ${{ runner.os }}-brew-${{ hashFiles('.github/workflows/release.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-brew-
+
+      - name: Install build tools
+        run: |
+          set -euo pipefail
+          brew update
+          brew install xcodegen create-dmg xcbeautify
+
+      - name: Generate Xcode project
+        run: |
+          set -euo pipefail
+          xcodegen generate
+
+      - name: Compute version and sync Info.plist
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" App/Resources/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $RUN_NUMBER" App/Resources/Info.plist
+
+      - name: Import Developer ID signing certificate
+        env:
+          DEVELOPER_ID_CERT_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
+          DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          printf '%s' "$DEVELOPER_ID_CERT_P12" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+
+          security import "$CERT_PATH" \
+            -P "$DEVELOPER_ID_CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k build.keychain
+
+          security set-key-partition-list \
+            -S "apple-tool:,apple:,codesign:" \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+          # Prepend the build keychain to the user search list, preserving the
+          # existing entries so system tools keep working.
+          EXISTING_KEYCHAINS="$(security list-keychains -d user | sed -e 's/^[[:space:]]*//' -e 's/"//g' | tr '\n' ' ')"
+          # shellcheck disable=SC2086
+          security list-keychains -d user -s build.keychain $EXISTING_KEYCHAINS
+
+          security find-identity -v -p codesigning build.keychain
+
+      - name: Archive (Release)
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          xcodebuild \
+            -scheme Marcdown \
+            -configuration Release \
+            -destination "generic/platform=macOS" \
+            -archivePath build/Marcdown.xcarchive \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            CODE_SIGN_STYLE=Manual \
+            OTHER_CODE_SIGN_FLAGS=--timestamp \
+            archive | xcbeautify
+
+      - name: Export archive
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          set -o pipefail
+
+          cat > ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>developer-id</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>destination</key><string>export</string>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild -exportArchive \
+            -archivePath build/Marcdown.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist ExportOptions.plist | xcbeautify
+
+      - name: Notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set -o pipefail
+
+          ditto -c -k --keepParent build/export/Marcdown.app build/Marcdown.zip
+
+          xcrun notarytool submit build/Marcdown.zip \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait --output-format json | tee build/notary.json
+
+          STATUS="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open("build/notary.json")).get("status",""))')"
+          SUBMISSION_ID="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open("build/notary.json")).get("id",""))')"
+
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "Notarization failed with status: $STATUS"
+            if [ -n "$SUBMISSION_ID" ]; then
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --apple-id "$APPLE_ID" \
+                --team-id "$APPLE_TEAM_ID" \
+                --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            fi
+            exit 1
+          fi
+
+      - name: Staple app
+        run: |
+          set -euo pipefail
+          xcrun stapler staple build/export/Marcdown.app
+
+      - name: Build DMG
+        run: |
+          set -euo pipefail
+          mkdir -p build/dmg
+          create-dmg \
+            --no-internet-enable \
+            --volname "Marcdown $VERSION" \
+            --window-size 540 380 \
+            --icon "Marcdown.app" 140 190 \
+            --hide-extension "Marcdown.app" \
+            --app-drop-link 400 190 \
+            "build/dmg/Marcdown-$VERSION.dmg" \
+            "build/export/Marcdown.app"
+
+      - name: Sign and staple DMG
+        run: |
+          set -euo pipefail
+          codesign --sign "Developer ID Application" --timestamp "build/dmg/Marcdown-$VERSION.dmg"
+          xcrun stapler staple "build/dmg/Marcdown-$VERSION.dmg"
+
+      - name: Compute SHA256
+        run: |
+          set -euo pipefail
+          cd build/dmg
+          shasum -a 256 "Marcdown-$VERSION.dmg" | tee "Marcdown-$VERSION.dmg.sha256"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          files: |
+            build/dmg/Marcdown-*.dmg
+            build/dmg/Marcdown-*.dmg.sha256
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":rotating_light: *Marcdown release failed* — `${{ github.workflow }}` / `${{ github.job }}` on `${{ github.ref_name }}` (<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|view run>)"
+            }
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          set -euo pipefail
+          security delete-keychain build.keychain || true
+          rm -f "$RUNNER_TEMP/cert.p12"
