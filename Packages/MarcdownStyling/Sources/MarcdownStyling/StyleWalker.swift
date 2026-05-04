@@ -16,22 +16,17 @@ struct StyleWalker: @MainActor MarkupWalker {
     private let theme: StylingTheme
     private let baseFont: NSFont
     private let index: LineOffsetIndex
-    /// Sub-ranges that intersect this range are kept un-concealed (the line
-    /// the user's caret is on, in practice). `nil` means "conceal everywhere".
-    private let revealedLineRange: NSRange?
 
     init(
         storage: NSTextStorage,
         theme: StylingTheme,
         baseFont: NSFont,
-        index: LineOffsetIndex,
-        revealedLineRange: NSRange? = nil
+        index: LineOffsetIndex
     ) {
         self.storage = storage
         self.theme = theme
         self.baseFont = baseFont
         self.index = index
-        self.revealedLineRange = revealedLineRange
     }
 
     // MARK: - Blocks
@@ -370,16 +365,10 @@ struct StyleWalker: @MainActor MarkupWalker {
     }
 
     /// Tags `subrange` with `.marcdownConcealed = true` so the editor's
-    /// layout delegate will suppress the corresponding glyphs. Skips when
-    /// `subrange` intersects `revealedLineRange` so the cursor's line stays
-    /// editable.
+    /// layout delegate will suppress the corresponding glyphs.
     private func applyConceal(to subrange: NSRange) {
         let clamped = clampedToStorage(subrange)
         guard clamped.length > 0 else { return }
-        if let revealed = revealedLineRange,
-           NSIntersectionRange(clamped, revealed).length > 0 {
-            return
-        }
         storage.addAttribute(.marcdownConcealed, value: true, range: clamped)
     }
 

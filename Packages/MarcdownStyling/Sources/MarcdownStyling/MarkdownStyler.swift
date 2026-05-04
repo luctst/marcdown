@@ -30,18 +30,12 @@ public final class MarkdownStyler {
     /// the caller can avoid an extra `String` materialization on every
     /// keystroke when they already have the source on hand.
     ///
-    /// `revealedLineRange`, when non-nil, identifies a single line (typically
-    /// the line containing the user's caret) whose syntax markers must NOT be
-    /// concealed even if they would otherwise qualify. This is what powers the
-    /// Bear/Typora reveal-on-cursor behavior. `nil` means "conceal everywhere".
-    ///
     /// Wrapped in `beginEditing()`/`endEditing()` so layout is updated once and
     /// the cursor / selection is preserved. Only attributes are mutated; the
     /// character contents are never touched.
     public func restyle(
         storage: NSTextStorage,
-        source: String,
-        revealedLineRange: NSRange? = nil
+        source: String
     ) {
         let document = Document(parsing: source)
         let index = LineOffsetIndex(source: source)
@@ -62,8 +56,7 @@ public final class MarkdownStyler {
             storage: storage,
             theme: theme,
             baseFont: baseFont,
-            index: index,
-            revealedLineRange: revealedLineRange
+            index: index
         )
         walker.visit(document)
         storage.endEditing()

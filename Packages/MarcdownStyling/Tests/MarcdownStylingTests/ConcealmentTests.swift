@@ -28,17 +28,14 @@ struct ConcealmentTests {
         return ranges
     }
 
-    private func styledStorage(
-        _ source: String,
-        revealedLineRange: NSRange? = nil
-    ) -> NSTextStorage {
+    private func styledStorage(_ source: String) -> NSTextStorage {
         let styler = MarkdownStyler()
         let storage = NSTextStorage(string: source)
-        styler.restyle(storage: storage, source: source, revealedLineRange: revealedLineRange)
+        styler.restyle(storage: storage, source: source)
         return storage
     }
 
-    // MARK: - Heading marker concealment (off-cursor)
+    // MARK: - Heading marker concealment
 
     @Test func h1MarkerIsConcealed() {
         let storage = styledStorage("# Hello")
@@ -74,30 +71,6 @@ struct ConcealmentTests {
             let value = storage.attribute(.marcdownConcealed, at: offset, effectiveRange: nil) as? Bool
             #expect(value != true, "Body char at \(offset) was concealed")
         }
-    }
-
-    // MARK: - Heading marker reveal (on-cursor)
-
-    @Test func headingMarkerRevealedWhenLineIsRevealed() {
-        let source = "# Hello"
-        let storage = styledStorage(
-            source,
-            revealedLineRange: NSRange(location: 0, length: (source as NSString).length)
-        )
-        #expect(concealedRanges(in: storage).isEmpty)
-    }
-
-    @Test func multiLineRevealOnlyAffectsCursorLine() {
-        // First line revealed, second line concealed.
-        let source = "# A\n## B"
-        let firstLineRange = (source as NSString).lineRange(for: NSRange(location: 0, length: 0))
-        let storage = styledStorage(source, revealedLineRange: firstLineRange)
-
-        let ranges = concealedRanges(in: storage)
-        // Only `## ` on line two should be flagged. `# ` on line one is revealed.
-        #expect(ranges.count == 1)
-        // `## ` starts at "# A\n".count = 4, length 3.
-        #expect(ranges.first == NSRange(location: 4, length: 3))
     }
 
     // MARK: - Inline emphasis / strong / strike concealment
@@ -171,17 +144,6 @@ struct ConcealmentTests {
         ])
     }
 
-    // MARK: - Reveal-on-cursor for inline syntax
-
-    @Test func inlineDelimitersAreNotConcealedWhenLineIsRevealed() {
-        let source = "**bold**"
-        let storage = styledStorage(
-            source,
-            revealedLineRange: NSRange(location: 0, length: (source as NSString).length)
-        )
-        #expect(concealedRanges(in: storage).isEmpty)
-    }
-
     // MARK: - Disk invariant
 
     @Test func restylePreservesEveryCharacter() {
@@ -196,37 +158,10 @@ struct ConcealmentTests {
             let storage = NSTextStorage(string: source)
             styler.restyle(storage: storage, source: source)
             #expect(storage.string == source, "Storage mutated for: \(source)")
-            // And again with a revealed line — same invariant.
-            styler.restyle(
-                storage: storage,
-                source: source,
-                revealedLineRange: NSRange(location: 0, length: (source as NSString).length)
-            )
-            #expect(storage.string == source, "Storage mutated under reveal for: \(source)")
         }
     }
 
-    // MARK: - Idempotency / stale flags stripped on reveal
-
-    @Test func revealAfterConcealStripsStaleFlags() {
-        let styler = MarkdownStyler()
-        let source = "# Hello"
-        let storage = NSTextStorage(string: source)
-
-        // Pass 1: conceal everything.
-        styler.restyle(storage: storage, source: source, revealedLineRange: nil)
-        #expect(!concealedRanges(in: storage).isEmpty)
-
-        // Pass 2: reveal the whole line. There must be no leftover flags from
-        // pass 1 — this is exactly what the explicit `removeAttribute` in
-        // `restyle` guards against.
-        styler.restyle(
-            storage: storage,
-            source: source,
-            revealedLineRange: NSRange(location: 0, length: (source as NSString).length)
-        )
-        #expect(concealedRanges(in: storage).isEmpty)
-    }
+    // MARK: - Idempotency
 
     @Test func restyleIsIdempotentForConcealFlags() {
         let styler = MarkdownStyler()
