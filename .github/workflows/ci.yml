@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: macos-15
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: swift-format lint
+        run: |
+          set -euo pipefail
+          xcrun swift-format lint --strict --recursive --configuration .swift-format \
+            App/ \
+            Packages/MarcdownCore/Sources \
+            Packages/MarcdownCore/Tests \
+            Packages/MarcdownStyling/Sources \
+            Packages/MarcdownStyling/Tests \
+            Packages/MarcdownEditor/Sources
+
+      - name: actionlint
+        uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d # v1.72.0
+        with:
+          fail_on_error: true
+          reporter: github-check
+
+      - name: commitlint
+        if: github.event_name == 'pull_request'
+        uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed # v6.2.1
+        with:
+          configFile: commitlint.config.js
+          failOnWarnings: true
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: *Marcdown CI failure* — `${{ github.workflow }}` / `${{ github.job }}` on `${{ github.ref_name }}` (<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|view run>)"
+            }
+
+  test-packages:
+    name: Test ${{ matrix.package }}
+    runs-on: macos-15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [MarcdownCore, MarcdownStyling]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Cache SPM build artifacts
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: |
+            Packages/MarcdownCore/.build
+            Packages/MarcdownStyling/.build
+            Packages/MarcdownEditor/.build
+          key: ${{ runner.os }}-spm-${{ hashFiles('Packages/**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: swift test
+        run: |
+          set -euo pipefail
+          swift test --package-path Packages/${{ matrix.package }} --parallel
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: *Marcdown CI failure* — `${{ github.workflow }}` / `${{ github.job }}` (`${{ matrix.package }}`) on `${{ github.ref_name }}` (<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|view run>)"
+            }
