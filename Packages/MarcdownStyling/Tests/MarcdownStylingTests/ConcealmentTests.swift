@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+
 @testable import MarcdownStyling
 
 /// Tests for the `.marcdownConcealed` attribute applied by `MarkdownStyler` /
@@ -45,11 +46,11 @@ struct ConcealmentTests {
 
     @Test func h2ThroughH6MarkersConcealedWithCorrectLengths() {
         let cases: [(source: String, expected: NSRange)] = [
-            ("## Hi",        NSRange(location: 0, length: 3)),
-            ("### Wat",      NSRange(location: 0, length: 4)),
-            ("#### Four",    NSRange(location: 0, length: 5)),
-            ("##### Five",   NSRange(location: 0, length: 6)),
-            ("###### Six",   NSRange(location: 0, length: 7)),
+            ("## Hi", NSRange(location: 0, length: 3)),
+            ("### Wat", NSRange(location: 0, length: 4)),
+            ("#### Four", NSRange(location: 0, length: 5)),
+            ("##### Five", NSRange(location: 0, length: 6)),
+            ("###### Six", NSRange(location: 0, length: 7)),
         ]
         for (source, expected) in cases {
             let ranges = concealedRanges(in: styledStorage(source))
@@ -78,10 +79,11 @@ struct ConcealmentTests {
     @Test func emphasisAsteriskDelimitersAreConcealed() {
         let storage = styledStorage("*foo*")
         let ranges = concealedRanges(in: storage)
-        #expect(ranges == [
-            NSRange(location: 0, length: 1),
-            NSRange(location: 4, length: 1),
-        ])
+        #expect(
+            ranges == [
+                NSRange(location: 0, length: 1),
+                NSRange(location: 4, length: 1),
+            ])
         // Inner body is not flagged.
         for offset in 1..<4 {
             let value = storage.attribute(.marcdownConcealed, at: offset, effectiveRange: nil) as? Bool
@@ -92,56 +94,62 @@ struct ConcealmentTests {
     @Test func emphasisUnderscoreDelimitersAreConcealed() {
         let storage = styledStorage("_italic_")
         let ranges = concealedRanges(in: storage)
-        #expect(ranges == [
-            NSRange(location: 0, length: 1),
-            NSRange(location: 7, length: 1),
-        ])
+        #expect(
+            ranges == [
+                NSRange(location: 0, length: 1),
+                NSRange(location: 7, length: 1),
+            ])
     }
 
     @Test func strongAsteriskDelimitersAreConcealed() {
         let storage = styledStorage("**bold**")
         let ranges = concealedRanges(in: storage)
-        #expect(ranges == [
-            NSRange(location: 0, length: 2),
-            NSRange(location: 6, length: 2),
-        ])
+        #expect(
+            ranges == [
+                NSRange(location: 0, length: 2),
+                NSRange(location: 6, length: 2),
+            ])
     }
 
     @Test func strongUnderscoreDelimitersAreConcealed() {
         let storage = styledStorage("__bold__")
         let ranges = concealedRanges(in: storage)
-        #expect(ranges == [
-            NSRange(location: 0, length: 2),
-            NSRange(location: 6, length: 2),
-        ])
+        #expect(
+            ranges == [
+                NSRange(location: 0, length: 2),
+                NSRange(location: 6, length: 2),
+            ])
     }
 
     @Test func strikethroughDelimitersAreConcealed() {
         let storage = styledStorage("~~strike~~")
         let ranges = concealedRanges(in: storage)
-        #expect(ranges == [
-            NSRange(location: 0, length: 2),
-            NSRange(location: 8, length: 2),
-        ])
+        #expect(
+            ranges == [
+                NSRange(location: 0, length: 2),
+                NSRange(location: 8, length: 2),
+            ])
     }
 
     @Test func inlineCodeSingleBackticksAreConcealed() {
         let storage = styledStorage("`code`")
         let ranges = concealedRanges(in: storage)
-        #expect(ranges == [
-            NSRange(location: 0, length: 1),
-            NSRange(location: 5, length: 1),
-        ])
+        #expect(
+            ranges == [
+                NSRange(location: 0, length: 1),
+                NSRange(location: 5, length: 1),
+            ])
     }
 
     @Test func inlineCodeDoubleBackticksAreConcealed() {
         // ``code`` — opening and closing 2-backtick runs.
         let storage = styledStorage("``code``")
         let ranges = concealedRanges(in: storage)
-        #expect(ranges == [
-            NSRange(location: 0, length: 2),
-            NSRange(location: 6, length: 2),
-        ])
+        #expect(
+            ranges == [
+                NSRange(location: 0, length: 2),
+                NSRange(location: 6, length: 2),
+            ])
     }
 
     // MARK: - Disk invariant
@@ -209,23 +217,25 @@ struct ConcealmentTests {
 
         // Char 0 is inside the `# ` conceal run.
         var effective = NSRange(location: 0, length: 0)
-        let value = storage.attribute(
-            .marcdownConcealed,
-            at: 0,
-            longestEffectiveRange: &effective,
-            in: full
-        ) as? Bool
+        let value =
+            storage.attribute(
+                .marcdownConcealed,
+                at: 0,
+                longestEffectiveRange: &effective,
+                in: full
+            ) as? Bool
         #expect(value == true)
         #expect(effective == NSRange(location: 0, length: 2))
 
         // Char 2 ("H") is not concealed.
         var bodyEffective = NSRange(location: 0, length: 0)
-        let bodyValue = storage.attribute(
-            .marcdownConcealed,
-            at: 2,
-            longestEffectiveRange: &bodyEffective,
-            in: full
-        ) as? Bool
+        let bodyValue =
+            storage.attribute(
+                .marcdownConcealed,
+                at: 2,
+                longestEffectiveRange: &bodyEffective,
+                in: full
+            ) as? Bool
         #expect(bodyValue != true)
         // Effective body run covers all of "Hello".
         #expect(bodyEffective == NSRange(location: 2, length: 5))

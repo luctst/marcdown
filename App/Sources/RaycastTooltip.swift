@@ -19,7 +19,7 @@ final class TooltipModel {
         let id: UUID
         let label: String
         let shortcut: [String]
-        let anchor: CGRect // button frame in the panel coordinate space
+        let anchor: CGRect  // button frame in the panel coordinate space
     }
 
     /// The tooltip currently rendered, if any.
@@ -268,7 +268,8 @@ final class TooltipWindowController {
     private func computeFrame(anchorInPanel: CGRect, panel: NSWindow) -> NSRect? {
         // Prefer the GeometryReader-reported size; fall back to fittingSize
         // only if the preference hasn't fired yet (first frame edge case).
-        let size = measuredSize.width > 0 && measuredSize.height > 0
+        let size =
+            measuredSize.width > 0 && measuredSize.height > 0
             ? measuredSize
             : hosting.fittingSize
         guard size.width > 0, size.height > 0 else { return nil }
@@ -303,8 +304,8 @@ final class TooltipWindowController {
         let inset: CGFloat = 8
 
         let buttonCenterX = buttonOnScreen.midX
-        let buttonTopY = buttonOnScreen.maxY    // top edge in screen coords (y up)
-        let buttonBottomY = buttonOnScreen.minY // bottom edge in screen coords (y up)
+        let buttonTopY = buttonOnScreen.maxY  // top edge in screen coords (y up)
+        let buttonBottomY = buttonOnScreen.minY  // bottom edge in screen coords (y up)
 
         // Place tooltip's bottom-center 6pt above the button's top-center.
         var originX = buttonCenterX - size.width / 2
@@ -322,7 +323,8 @@ final class TooltipWindowController {
 
         // If there isn't enough room above the button, fall back to below.
         if screenFrame.height > 0,
-           originY + size.height > screenFrame.maxY - inset {
+            originY + size.height > screenFrame.maxY - inset
+        {
             let belowY = buttonBottomY - gap - size.height
             if belowY >= screenFrame.minY + inset {
                 originY = belowY

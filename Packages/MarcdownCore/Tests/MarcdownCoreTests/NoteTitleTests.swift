@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import MarcdownCore
 
 @Suite("Note title parsing")
@@ -21,20 +22,20 @@ struct NoteTitleTests {
     @Test("Picks the first H1 heading")
     func picksFirstH1() {
         let body = """
-        # First
-        body
-        # Second
-        """
+            # First
+            body
+            # Second
+            """
         #expect(makeNote(body: body).title == "First")
     }
 
     @Test("Ignores H2 and deeper headings")
     func ignoresDeeperHeadings() {
         let body = """
-        ## Subheading
-        ### Deeper
-        # Real Title
-        """
+            ## Subheading
+            ### Deeper
+            # Real Title
+            """
         #expect(makeNote(body: body).title == "Real Title")
     }
 

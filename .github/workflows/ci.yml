@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: macos-15
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Full history so commitlint can diff against origin/<base_ref>.
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          # Prefer Xcode 17.x (Swift 6.2+); fall back to highest Xcode 16.x.
+          XCODE_PATH="$(find /Applications -maxdepth 1 -type d -name 'Xcode_17*.app' 2>/dev/null | sort -V | tail -n1)"
+          if [ -z "$XCODE_PATH" ]; then
+            XCODE_PATH="$(find /Applications -maxdepth 1 -type d -name 'Xcode_16*.app' 2>/dev/null | sort -V | tail -n1)"
+          fi
+          if [ -z "$XCODE_PATH" ]; then
+            echo "No suitable Xcode found on runner" >&2
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+          swift --version
+
+      - name: swift-format lint
+        run: |
+          set -euo pipefail
+          xcrun swift-format lint --strict --recursive --configuration .swift-format \
+            App/ \
+            Packages/MarcdownCore/Sources \
+            Packages/MarcdownCore/Tests \
+            Packages/MarcdownStyling/Sources \
+            Packages/MarcdownStyling/Tests \
+            Packages/MarcdownEditor/Sources
+
+      - name: actionlint
+        run: |
+          set -euo pipefail
+          # actionlint is a Docker container action upstream, which is unsupported
+          # on macOS runners; install the binary via Homebrew instead.
+          brew install actionlint
+          actionlint -color .github/workflows/*.yml
+
+      - name: Setup Node.js
+        if: github.event_name == 'pull_request'
+        # commitlint upstream is a Docker container action, which is unsupported
+        # on macOS runners; install Node and invoke the CLI directly instead.
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+
+      - name: commitlint
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-audit --no-fund \
+            @commitlint/cli@^19 \
+            @commitlint/config-conventional@^19
+          npx --no-install commitlint \
+            --from "origin/${{ github.base_ref }}" \
+            --to HEAD \
+            --verbose
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: *Marcdown CI failure* — `${{ github.workflow }}` / `${{ github.job }}` on `${{ github.ref_name }}` (<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|view run>)"
+            }
+
+  test-packages:
+    name: Test ${{ matrix.package }}
+    runs-on: macos-15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [MarcdownCore, MarcdownStyling]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          # Prefer Xcode 17.x (Swift 6.2+); fall back to highest Xcode 16.x.
+          XCODE_PATH="$(find /Applications -maxdepth 1 -type d -name 'Xcode_17*.app' 2>/dev/null | sort -V | tail -n1)"
+          if [ -z "$XCODE_PATH" ]; then
+            XCODE_PATH="$(find /Applications -maxdepth 1 -type d -name 'Xcode_16*.app' 2>/dev/null | sort -V | tail -n1)"
+          fi
+          if [ -z "$XCODE_PATH" ]; then
+            echo "No suitable Xcode found on runner" >&2
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+          swift --version
+
+      - name: Cache SPM build artifacts
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: |
+            Packages/MarcdownCore/.build
+            Packages/MarcdownStyling/.build
+            Packages/MarcdownEditor/.build
+          key: ${{ runner.os }}-spm-${{ hashFiles('Packages/**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: swift test
+        run: |
+          set -euo pipefail
+          swift test --package-path Packages/${{ matrix.package }} --parallel
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: *Marcdown CI failure* — `${{ github.workflow }}` / `${{ github.job }}` (`${{ matrix.package }}`) on `${{ github.ref_name }}` (<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|view run>)"
+            }

@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: "swift"
+    directory: "/Packages/MarcdownCore"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-spm:
+        patterns: ["*"]
+  - package-ecosystem: "swift"
+    directory: "/Packages/MarcdownStyling"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-spm:
+        patterns: ["*"]
+  - package-ecosystem: "swift"
+    directory: "/Packages/MarcdownEditor"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-spm:
+        patterns: ["*"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-actions:
+        patterns: ["*"]

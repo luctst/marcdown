@@ -81,7 +81,7 @@ final class NoteViewModel {
             do {
                 try await Task.sleep(for: interval)
             } catch {
-                return // cancelled
+                return  // cancelled
             }
             await self?.persist(snapshot)
         }
@@ -124,4 +124,3 @@ final class NoteViewModel {
         return stem.range(of: #"^Untitled \d+$"#, options: .regularExpression) != nil
     }
 }
-

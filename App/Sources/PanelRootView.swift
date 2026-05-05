@@ -124,7 +124,7 @@ struct PanelRootView: View {
             Button("Next Note") { store.next() }
                 .keyboardShortcut("]", modifiers: [.command, .shift])
 
-            ForEach(1 ..< 10, id: \.self) { n in
+            ForEach(1..<10, id: \.self) { n in
                 Button("Jump to Recent \(n)") { store.jumpToRecent(n) }
                     .keyboardShortcut(KeyEquivalent(Character("\(n)")), modifiers: [.command])
             }
