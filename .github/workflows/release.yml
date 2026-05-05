@@ -22,18 +22,18 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode_16.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.app
-          else
-            # Fall back to whichever Xcode 16.x is installed on the runner.
-            XCODE_PATH="$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n1 || true)"
-            if [ -z "$XCODE_PATH" ]; then
-              echo "No Xcode 16.x found on runner" >&2
-              exit 1
-            fi
-            sudo xcode-select -s "$XCODE_PATH"
+          # Prefer Xcode 17.x (Swift 6.2+); fall back to highest Xcode 16.x.
+          XCODE_PATH="$(find /Applications -maxdepth 1 -type d -name 'Xcode_17*.app' 2>/dev/null | sort -V | tail -n1)"
+          if [ -z "$XCODE_PATH" ]; then
+            XCODE_PATH="$(find /Applications -maxdepth 1 -type d -name 'Xcode_16*.app' 2>/dev/null | sort -V | tail -n1)"
           fi
+          if [ -z "$XCODE_PATH" ]; then
+            echo "No suitable Xcode found on runner" >&2
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
+          swift --version
 
       - name: Cache Homebrew
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
