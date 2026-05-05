@@ -8,7 +8,7 @@ import Markdown
 /// preserved in the buffer and dimmed, mirroring the Typora / Obsidian
 /// Live-Preview editing model.
 @MainActor
-struct StyleWalker: @MainActor MarkupWalker {
+struct StyleWalker: @preconcurrency MarkupWalker {
     // The walker is a struct because `MarkupVisitor` declares its visit methods
     // `mutating`. None of our state actually mutates — it's all references —
     // but the protocol requirement forces this shape.
