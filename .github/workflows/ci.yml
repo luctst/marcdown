@@ -25,6 +25,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Full history so commitlint can diff against origin/<base_ref>.
+          fetch-depth: 0
 
       - name: Select Xcode
         run: |
@@ -61,12 +64,25 @@ jobs:
           brew install actionlint
           actionlint -color .github/workflows/*.yml
 
+      - name: Setup Node.js
+        if: github.event_name == 'pull_request'
+        # commitlint upstream is a Docker container action, which is unsupported
+        # on macOS runners; install Node and invoke the CLI directly instead.
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+
       - name: commitlint
         if: github.event_name == 'pull_request'
-        uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed # v6.2.1
-        with:
-          configFile: commitlint.config.js
-          failOnWarnings: true
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-audit --no-fund \
+            @commitlint/cli@^19 \
+            @commitlint/config-conventional@^19
+          npx --no-install commitlint \
+            --from "origin/${{ github.base_ref }}" \
+            --to HEAD \
+            --verbose
 
       - name: Notify Slack on failure
         if: failure()
