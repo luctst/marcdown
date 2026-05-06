@@ -112,9 +112,11 @@ struct PanelRootView: View {
         .ignoresSafeArea(.all, edges: .top)
         .coordinateSpace(name: PanelCoordinateSpace.name)
         .environment(tooltips)
-        .background(EscapeKeyMonitor(isActive: activeOverlay != .none) {
-            dismissActiveOverlay()
-        })
+        .background(
+            EscapeKeyMonitor(isActive: activeOverlay != .none) {
+                dismissActiveOverlay()
+            }
+        )
         .task {
             await store.bootstrap()
         }
@@ -351,7 +353,7 @@ private struct EscapeKeyMonitor: NSViewRepresentable {
         private func installIfNeeded() {
             guard monitor == nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard event.keyCode == 53 else { return event } // 53 == Escape
+                guard event.keyCode == 53 else { return event }  // 53 == Escape
                 self?.onEscape?()
                 return nil
             }
