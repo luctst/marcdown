@@ -8,11 +8,23 @@ enum PaletteSubMode: Equatable, Sendable {
     case exportFormat
 }
 
-/// Two flavors of palette action: a leaf invokes a closure, a submenu
-/// transitions the palette into a sub-mode rather than dispatching work.
+/// Three flavors of palette action: a leaf invokes a closure, a submenu
+/// transitions the palette into a sub-mode rather than dispatching work, and
+/// a reference is a non-actionable informational row (e.g. markdown syntax
+/// docs). Reference rows render but are skipped by keyboard nav and produce a
+/// no-op when committed.
 enum PaletteActionKind: Sendable {
     case leaf(@MainActor () -> Void)
     case submenu(PaletteSubMode)
+    case reference
+}
+
+/// Visual + filtering grouping for palette rows. Section headers render above
+/// each non-empty group; nav skips header rows. Existing call-sites that omit
+/// the field land in `.commands` so the data-model change is non-breaking.
+enum PaletteSection: Sendable, Equatable, Hashable {
+    case commands
+    case markdown
 }
 
 @MainActor
@@ -22,6 +34,7 @@ struct PaletteAction: Identifiable {
     let icon: String
     let shortcutLabel: String
     let kind: PaletteActionKind
+    let section: PaletteSection
 
     /// Trailing-closure init that constructs a leaf action. Preserves the
     /// existing call-site shape used by `makePaletteActions` and the existing
@@ -31,6 +44,7 @@ struct PaletteAction: Identifiable {
         title: String,
         icon: String,
         shortcutLabel: String,
+        section: PaletteSection = .commands,
         _ handler: @escaping @MainActor () -> Void
     ) {
         self.id = id
@@ -38,29 +52,43 @@ struct PaletteAction: Identifiable {
         self.icon = icon
         self.shortcutLabel = shortcutLabel
         self.kind = .leaf(handler)
+        self.section = section
     }
 
-    /// Submenu init for actions that, when committed, transition the palette
-    /// to a sub-mode rather than dispatching a closure.
+    /// Init for non-leaf actions (`.submenu`, `.reference`). Existing call-sites
+    /// that only pass `kind: .submenu(...)` keep working — `section` defaults to
+    /// `.commands`.
     init(
         id: String,
         title: String,
         icon: String,
         shortcutLabel: String,
-        kind: PaletteActionKind
+        kind: PaletteActionKind,
+        section: PaletteSection = .commands
     ) {
         self.id = id
         self.title = title
         self.icon = icon
         self.shortcutLabel = shortcutLabel
         self.kind = kind
+        self.section = section
     }
 
     /// Leaf-only convenience accessor used by tests that spy on handlers.
-    /// Returns nil for `.submenu` cases.
+    /// Returns nil for `.submenu` and `.reference` cases.
     var handler: (@MainActor () -> Void)? {
         if case .leaf(let h) = kind { return h }
         return nil
+    }
+
+    /// True for rows the user can commit (Enter / click). False for rows that
+    /// exist purely as in-palette documentation. Used by keyboard nav and the
+    /// commit path to skip non-actionable rows.
+    var isActionable: Bool {
+        switch kind {
+        case .leaf, .submenu: return true
+        case .reference: return false
+        }
     }
 }
 
@@ -73,6 +101,36 @@ func paletteSubModeAfterEscape(current: PaletteSubMode) -> PaletteSubMode? {
     case .root: return nil
     case .exportFormat: return .root
     }
+}
+
+/// Pure helper used by ↑/↓ navigation to find the next actionable row from
+/// `from`, walking the list by `delta` (±1 in practice) and wrapping at the
+/// edges. Returns `nil` when the list contains no actionable rows. Skips
+/// `.reference` rows so arrow keys never park on them.
+///
+/// The wrap is deliberate: existing nav cycles top↔bottom, and the markdown
+/// reference rows must not break that — an ↑ from the first command should
+/// land on the last command, never on the last markdown row.
+@MainActor
+func nextActionableIndex(in actions: [PaletteAction], from: Int, delta: Int) -> Int? {
+    guard !actions.isEmpty else { return nil }
+    guard actions.contains(where: { $0.isActionable }) else { return nil }
+    let count = actions.count
+    let step = delta == 0 ? 1 : delta
+    var index = ((from % count) + count) % count
+    for _ in 0..<count {
+        index = (index + step + count) % count
+        if actions[index].isActionable { return index }
+    }
+    return nil
+}
+
+/// Pure helper used to land `selectedIndex` on the first actionable row when
+/// the list mounts or the filter changes. Returns `nil` if no row is
+/// actionable (e.g. filter only matches reference rows).
+@MainActor
+func firstActionableIndex(in actions: [PaletteAction]) -> Int? {
+    actions.firstIndex(where: { $0.isActionable })
 }
 
 /// Builds the three rows shown when the palette is in `.exportFormat`. Each
@@ -195,7 +253,10 @@ struct CommandPalette: View {
         )
         .shadow(radius: 30, y: 10)
         .onAppear {
-            selectedIndex = 0
+            // Land on the first actionable row so ↵ does the right thing even
+            // when reference rows exist at the top of the filtered list. Falls
+            // back to 0 when nothing is actionable (filter shows only refs).
+            selectedIndex = firstActionableIndex(in: filtered) ?? 0
             // Defer focus assignment by one runloop tick. When this overlay is
             // mounted as a result of dismissing another overlay (palette →
             // switcher), the previous TextField is still tearing down its
@@ -240,7 +301,10 @@ struct CommandPalette: View {
                     return .handled
                 }
                 .onChange(of: query) { _, _ in
-                    selectedIndex = 0
+                    // After a filter change, snap back to the first actionable
+                    // row in the new filtered list. Falls back to 0 if the
+                    // filter only matches reference rows.
+                    selectedIndex = firstActionableIndex(in: filtered) ?? 0
                 }
                 .accessibilityLabel(searchAccessibilityLabel)
         }
@@ -264,20 +328,30 @@ struct CommandPalette: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(filtered.enumerated()), id: \.element.id) { index, action in
-                        row(for: action, isSelected: index == selectedIndex)
-                            .id(action.id)
-                            .contentShape(Rectangle())
-                            .onHover { hovering in
-                                guard !isUsingKeyboard else { return }
-                                if hovering { selectedIndex = index }
+                    ForEach(orderedSections, id: \.self) { section in
+                        let rowsInSection = filtered.enumerated().filter { $0.element.section == section }
+                        if !rowsInSection.isEmpty {
+                            sectionHeader(for: section)
+                            ForEach(rowsInSection, id: \.element.id) { index, action in
+                                row(for: action, isSelected: index == selectedIndex)
+                                    .id(action.id)
+                                    .contentShape(Rectangle())
+                                    .onHover { hovering in
+                                        guard !isUsingKeyboard else { return }
+                                        // Skip non-actionable rows so the
+                                        // selection highlight never parks on a
+                                        // markdown reference entry.
+                                        guard action.isActionable else { return }
+                                        if hovering { selectedIndex = index }
+                                    }
+                                    .accessibilityAddTraits(.isButton)
+                                    .accessibilityLabel(rowAccessibilityLabel(for: action))
+                                    .accessibilityValue("Row \(index + 1) of \(filtered.count)")
+                                    .onTapGesture {
+                                        invoke(action)
+                                    }
                             }
-                            .accessibilityAddTraits(.isButton)
-                            .accessibilityLabel(rowAccessibilityLabel(for: action))
-                            .accessibilityValue("Row \(index + 1) of \(filtered.count)")
-                            .onTapGesture {
-                                invoke(action)
-                            }
+                        }
                     }
                 }
             }
@@ -293,6 +367,29 @@ struct CommandPalette: View {
                     proxy.scrollTo(filtered[newValue].id, anchor: .center)
                 }
             }
+        }
+    }
+
+    /// Render order for sections. Commands first (primary affordance), Markdown
+    /// reference second. Keeping this in one place makes the ordering decision
+    /// reviewable in isolation — see plan §risk-2.
+    private var orderedSections: [PaletteSection] { [.commands, .markdown] }
+
+    @ViewBuilder
+    private func sectionHeader(for section: PaletteSection) -> some View {
+        Text(sectionTitle(for: section))
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func sectionTitle(for section: PaletteSection) -> String {
+        switch section {
+        case .commands: return "COMMANDS"
+        case .markdown: return "MARKDOWN"
         }
     }
 
@@ -326,9 +423,9 @@ struct CommandPalette: View {
     }
 
     private func moveSelection(_ delta: Int) {
-        guard !filtered.isEmpty else { return }
-        let count = filtered.count
-        selectedIndex = (selectedIndex + delta + count) % count
+        guard let next = nextActionableIndex(in: filtered, from: selectedIndex, delta: delta)
+        else { return }
+        selectedIndex = next
     }
 
     /// Handlers own their post-action overlay state — leaf actions may dismiss
@@ -350,6 +447,10 @@ struct CommandPalette: View {
             }
             query = ""
             selectedIndex = 0
+        case .reference:
+            // Non-actionable in v1: palette stays open, no dispatch. See plan
+            // §risks-1 for the v2 candidate ("insert syntax at cursor").
+            break
         }
     }
 
