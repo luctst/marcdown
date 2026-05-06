@@ -1,7 +1,6 @@
 import Foundation
-import Testing
-
 import MarcdownStyling
+import Testing
 
 @Suite("HTMLExporter")
 struct HTMLExporterTests {
@@ -51,7 +50,8 @@ struct HTMLExporterTests {
         #expect(output.contains("<code"))
         // The <code> must live inside the <pre> block.
         if let preStart = output.range(of: "<pre"),
-           let preEnd = output.range(of: "</pre>") {
+            let preEnd = output.range(of: "</pre>")
+        {
             let preBlock = output[preStart.lowerBound..<preEnd.upperBound]
             #expect(preBlock.contains("<code"))
             #expect(preBlock.contains("let x = 1"))
@@ -67,7 +67,8 @@ struct HTMLExporterTests {
         // Locate the <title>...</title> element and verify the raw script tag
         // is NOT present inside it.
         guard let openRange = output.range(of: "<title>"),
-              let closeRange = output.range(of: "</title>", range: openRange.upperBound..<output.endIndex) else {
+            let closeRange = output.range(of: "</title>", range: openRange.upperBound..<output.endIndex)
+        else {
             Issue.record("Output did not contain a <title>...</title> element")
             return
         }
@@ -78,7 +79,8 @@ struct HTMLExporterTests {
         // The escaped form must appear somewhere — accept either named or
         // numeric character references.
         let hasNamedEscape = output.contains("&lt;script&gt;alert(1)&lt;/script&gt;")
-        let hasNumericEscape = output.contains("&#60;script&#62;")
+        let hasNumericEscape =
+            output.contains("&#60;script&#62;")
             || output.contains("&#x3c;script&#x3e;")
             || output.contains("&#x3C;script&#x3E;")
         #expect(hasNamedEscape || hasNumericEscape)

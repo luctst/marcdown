@@ -33,7 +33,8 @@ final class ToastModel {
     private let scheduler: @MainActor (Duration, @escaping @MainActor () -> Void) -> Task<Void, Never>
 
     init(
-        scheduler: @escaping @MainActor (Duration, @escaping @MainActor () -> Void) -> Task<Void, Never> = { duration, fire in
+        scheduler: @escaping @MainActor (Duration, @escaping @MainActor () -> Void) -> Task<Void, Never> = {
+            duration, fire in
             Task { @MainActor in
                 try? await Task.sleep(for: duration)
                 fire()

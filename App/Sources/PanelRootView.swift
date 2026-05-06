@@ -274,20 +274,24 @@ struct PanelRootView: View {
                             fallbackURL: store.currentNote
                         )
                         do {
-                            guard let url = try await Exporter.export(
-                                format: format,
-                                text: editorText,
-                                suggestedName: suggested
-                            ) else { return }
-                            toasts.show(ToastEntry(
-                                text: "Exported as \(url.lastPathComponent)",
-                                duration: .milliseconds(1500)
-                            ))
+                            guard
+                                let url = try await Exporter.export(
+                                    format: format,
+                                    text: editorText,
+                                    suggestedName: suggested
+                                )
+                            else { return }
+                            toasts.show(
+                                ToastEntry(
+                                    text: "Exported as \(url.lastPathComponent)",
+                                    duration: .milliseconds(1500)
+                                ))
                         } catch {
-                            toasts.show(ToastEntry(
-                                text: "Couldn't export — \(error.userFacingReason). Try again.",
-                                duration: .seconds(4)
-                            ))
+                            toasts.show(
+                                ToastEntry(
+                                    text: "Couldn't export — \(error.userFacingReason). Try again.",
+                                    duration: .seconds(4)
+                                ))
                         }
                     }
                 }

@@ -88,7 +88,8 @@ enum Exporter {
         panel.nameFieldStringValue = "\(suggestedName).\(format.fileExtension)"
         panel.allowedContentTypes = [format.utType]
         panel.canCreateDirectories = true
-        panel.directoryURL = FileManager.default
+        panel.directoryURL =
+            FileManager.default
             .urls(for: .documentDirectory, in: .userDomainMask)
             .first
         panel.isExtensionHidden = false

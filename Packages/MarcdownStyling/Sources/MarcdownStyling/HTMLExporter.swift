@@ -18,20 +18,20 @@ public enum HTMLExporter {
         let escapedTitle = htmlEscape(title)
 
         return """
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>\(escapedTitle)</title>
-        <style>\(defaultCSS)</style>
-        </head>
-        <body>
-        <article>
-        \(body)</article>
-        </body>
-        </html>
-        """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>\(escapedTitle)</title>
+            <style>\(defaultCSS)</style>
+            </head>
+            <body>
+            <article>
+            \(body)</article>
+            </body>
+            </html>
+            """
     }
 
     // MARK: - Private
@@ -53,13 +53,13 @@ public enum HTMLExporter {
 
     private static let defaultCSS = """
 
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(127,127,127,.12); padding: .15em .35em; border-radius: 3px; }
-    pre { background: rgba(127,127,127,.12); padding: 1rem; overflow-x: auto; border-radius: 6px; }
-    pre code { background: transparent; padding: 0; border-radius: 0; }
-    blockquote { border-left: 4px solid rgba(127,127,127,.3); padding-left: 1rem; margin-left: 0; }
-    h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin-top: 1.5rem; }
-    img { max-width: 100%; height: auto; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; }
+        code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(127,127,127,.12); padding: .15em .35em; border-radius: 3px; }
+        pre { background: rgba(127,127,127,.12); padding: 1rem; overflow-x: auto; border-radius: 6px; }
+        pre code { background: transparent; padding: 0; border-radius: 0; }
+        blockquote { border-left: 4px solid rgba(127,127,127,.3); padding-left: 1rem; margin-left: 0; }
+        h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin-top: 1.5rem; }
+        img { max-width: 100%; height: auto; }
 
-    """
+        """
 }

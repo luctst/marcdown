@@ -27,7 +27,7 @@ struct ToastModelTests {
                 self?.scheduled.append(Scheduled(duration: duration, fire: closure))
                 // Return a no-op task so the production signature is preserved
                 // without the test ever waiting on real time.
-                return Task { }
+                return Task {}
             }
         }
 

@@ -45,11 +45,12 @@ struct CommandPaletteSubModeTests {
     @Test("Format chooser icons match the design tokens (plan §3b)")
     func formatChooserIconsMatchDesignTokens() {
         let actions = makeFormatChooserActions(onExport: { _ in })
-        #expect(actions.map(\.icon) == [
-            "doc.plaintext",
-            "chevron.left.forwardslash.chevron.right",
-            "doc.richtext",
-        ])
+        #expect(
+            actions.map(\.icon) == [
+                "doc.plaintext",
+                "chevron.left.forwardslash.chevron.right",
+                "doc.richtext",
+            ])
     }
 
     @Test("Format chooser rows have no keyboard shortcut label")

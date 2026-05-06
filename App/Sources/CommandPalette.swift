@@ -227,7 +227,8 @@ struct CommandPalette: View {
                 }
                 .onKeyPress(.escape) {
                     if let popped = paletteSubModeAfterEscape(current: subMode),
-                       popped != subMode {
+                        popped != subMode
+                    {
                         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
                             subMode = popped
                         }
