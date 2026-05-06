@@ -1,6 +1,13 @@
 import AppKit
 import SwiftUI
 
+extension Notification.Name {
+    /// Posted by `PanelController` immediately after the panel is ordered out.
+    /// `PanelRootView` listens for this to reset transient overlay state, since
+    /// the SwiftUI hosting view persists across hide/show cycles.
+    static let marcdownPanelDidHide = Notification.Name("MarcdownPanelDidHide")
+}
+
 /// Hardcoded size constraints for the floating editor panel.
 /// Per PM scope, these are intentionally not user-configurable.
 enum PanelSizeConstraints {
@@ -102,6 +109,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         let target = restoreFocus ? previouslyActiveApp : nil
         previouslyActiveApp = nil
         panel.orderOut(nil)
+        NotificationCenter.default.post(name: .marcdownPanelDidHide, object: panel)
         if let target, !target.isTerminated {
             target.activate()
         }

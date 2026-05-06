@@ -15,6 +15,11 @@ struct CommandPalette: View {
 
     @State private var query: String = ""
     @State private var selectedIndex: Int = 0
+    /// True while the user is driving selection from the keyboard. Cleared on
+    /// genuine mouse motion (`onContinuousHover`). Used to suppress
+    /// `onHover`-driven selection updates that would otherwise yank the
+    /// highlight back to whichever row the cursor happens to be parked over.
+    @State private var isUsingKeyboard: Bool = false
     @FocusState private var queryFieldFocused: Bool
 
     private var filtered: [PaletteAction] {
@@ -37,7 +42,14 @@ struct CommandPalette: View {
         .shadow(radius: 30, y: 10)
         .onAppear {
             selectedIndex = 0
-            queryFieldFocused = true
+            // Defer focus assignment by one runloop tick. When this overlay is
+            // mounted as a result of dismissing another overlay (palette →
+            // switcher), the previous TextField is still tearing down its
+            // first-responder state on the same tick, and a synchronous
+            // assignment here gets clobbered.
+            Task { @MainActor in
+                queryFieldFocused = true
+            }
         }
     }
 
@@ -50,10 +62,12 @@ struct CommandPalette: View {
                 .focused($queryFieldFocused)
                 .onSubmit { commitSelection() }
                 .onKeyPress(.upArrow) {
+                    isUsingKeyboard = true
                     moveSelection(-1)
                     return .handled
                 }
                 .onKeyPress(.downArrow) {
+                    isUsingKeyboard = true
                     moveSelection(1)
                     return .handled
                 }
@@ -69,31 +83,42 @@ struct CommandPalette: View {
         .padding(.vertical, 12)
     }
 
+    @ViewBuilder
     private var list: some View {
+        if filtered.isEmpty {
+            Text("No matching actions")
+                .font(.system(size: 13))
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            populatedList
+        }
+    }
+
+    private var populatedList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if filtered.isEmpty {
-                        Text("No matching actions")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.tertiary)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(.top, 40)
-                    }
                     ForEach(Array(filtered.enumerated()), id: \.element.id) { index, action in
                         row(for: action, isSelected: index == selectedIndex)
                             .id(action.id)
                             .contentShape(Rectangle())
                             .onHover { hovering in
+                                guard !isUsingKeyboard else { return }
                                 if hovering { selectedIndex = index }
                             }
                             .accessibilityAddTraits(.isButton)
                             .onTapGesture {
                                 action.handler()
-                                onDismiss()
                             }
                     }
                 }
+            }
+            .onContinuousHover { phase in
+                // Genuine pointer motion clears the keyboard-priority flag so
+                // hover-to-select behavior resumes once the user is back on
+                // the trackpad/mouse.
+                if case .active = phase { isUsingKeyboard = false }
             }
             .onChange(of: selectedIndex) { _, newValue in
                 guard filtered.indices.contains(newValue) else { return }
@@ -130,10 +155,12 @@ struct CommandPalette: View {
         selectedIndex = (selectedIndex + delta + count) % count
     }
 
+    /// Handlers own their post-action overlay state — they may dismiss the
+    /// palette or chain into another overlay. `onDismiss` is reserved for the
+    /// Esc-key and backdrop-tap paths where the user cancelled without acting.
     private func commitSelection() {
         guard filtered.indices.contains(selectedIndex) else { return }
         filtered[selectedIndex].handler()
-        onDismiss()
     }
 
     // MARK: - Filtering
