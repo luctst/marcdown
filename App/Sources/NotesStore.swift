@@ -15,6 +15,7 @@ final class NotesStore {
     private(set) var notes: [NoteSummary] = []
     private(set) var recentlyOpened: [URL] = []
     private(set) var currentNote: URL?
+    private(set) var isBootstrapping: Bool = true
 
     /// Published editor view model for the `currentNote`. Swapped out whenever
     /// the current note changes.
@@ -58,6 +59,9 @@ final class NotesStore {
                     await self?.apply(snapshot: snapshot, ensureScratchIfEmpty: false)
                 }
             }
+
+            // Safe here because `apply(snapshot:)` fully resolves (incl. the scratch-seed `MainActor.run`) before this line; spawning detached work from `apply` would break this invariant.
+            self.isBootstrapping = false
         }
         bootstrapTask = task
         await task.value

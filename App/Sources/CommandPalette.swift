@@ -32,7 +32,7 @@ struct CommandPalette: View {
             Divider()
             list
         }
-        .frame(width: 520, height: 340)
+        .frame(maxWidth: 520, maxHeight: 340)
         .background(VisualEffectBackground())
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
