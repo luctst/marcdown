@@ -81,6 +81,13 @@ func makePaletteActions(
             setOverlay(.none)
             next()
         },
+        PaletteAction(
+            id: "export",
+            title: "Export",
+            icon: "square.and.arrow.up",
+            shortcutLabel: "",
+            kind: .submenu(.exportFormat)
+        ),
     ]
 }
 
@@ -89,6 +96,7 @@ struct PanelRootView: View {
 
     @State private var activeOverlay: ActiveOverlay = .none
     @State private var tooltips = TooltipModel()
+    @State private var toasts = ToastModel()
 
     private var currentTitle: String {
         guard let editor = store.editor else { return "Marcdown" }
@@ -112,6 +120,11 @@ struct PanelRootView: View {
         .ignoresSafeArea(.all, edges: .top)
         .coordinateSpace(name: PanelCoordinateSpace.name)
         .environment(tooltips)
+        .overlay(alignment: .bottom) {
+            Toast(model: toasts)
+                .padding(.bottom, 36)
+                .allowsHitTesting(false)
+        }
         .background(
             EscapeKeyMonitor(isActive: activeOverlay != .none) {
                 dismissActiveOverlay()
@@ -251,7 +264,37 @@ struct PanelRootView: View {
                 .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { activeOverlay = .none } }
             CommandPalette(
                 actions: paletteActions,
-                onDismiss: { activeOverlay = .none }
+                onDismiss: { activeOverlay = .none },
+                onExport: { format in
+                    activeOverlay = .none
+                    Task { @MainActor in
+                        guard let editorText = store.editor?.text else { return }
+                        let suggested = Exporter.suggestedName(
+                            text: editorText,
+                            fallbackURL: store.currentNote
+                        )
+                        do {
+                            guard
+                                let url = try await Exporter.export(
+                                    format: format,
+                                    text: editorText,
+                                    suggestedName: suggested
+                                )
+                            else { return }
+                            toasts.show(
+                                ToastEntry(
+                                    text: "Exported as \(url.lastPathComponent)",
+                                    duration: .milliseconds(1500)
+                                ))
+                        } catch {
+                            toasts.show(
+                                ToastEntry(
+                                    text: "Couldn't export — \(error.userFacingReason). Try again.",
+                                    duration: .seconds(4)
+                                ))
+                        }
+                    }
+                }
             )
             .padding(.horizontal, 24)
             .padding(.vertical, 32)
