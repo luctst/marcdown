@@ -11,6 +11,9 @@ struct QuickSwitcher: View {
 
     @State private var query: String = ""
     @State private var selectedIndex: Int = 0
+    /// True while the user is driving selection from the keyboard. See the
+    /// matching note in `CommandPalette` for rationale.
+    @State private var isUsingKeyboard: Bool = false
     @FocusState private var queryFieldFocused: Bool
 
     private var filtered: [ScoredNote] {
@@ -33,7 +36,12 @@ struct QuickSwitcher: View {
         .shadow(radius: 30, y: 10)
         .onAppear {
             selectedIndex = 0
-            queryFieldFocused = true
+            // Defer one runloop tick — see CommandPalette.onAppear for the
+            // detailed rationale (focus race when transitioning between
+            // overlays in the same SwiftUI update).
+            Task { @MainActor in
+                queryFieldFocused = true
+            }
         }
     }
 
@@ -46,10 +54,12 @@ struct QuickSwitcher: View {
                 .focused($queryFieldFocused)
                 .onSubmit { commitSelection() }
                 .onKeyPress(.upArrow) {
+                    isUsingKeyboard = true
                     moveSelection(-1)
                     return .handled
                 }
                 .onKeyPress(.downArrow) {
+                    isUsingKeyboard = true
                     moveSelection(1)
                     return .handled
                 }
@@ -65,22 +75,28 @@ struct QuickSwitcher: View {
         .padding(.vertical, 12)
     }
 
+    @ViewBuilder
     private var list: some View {
+        if filtered.isEmpty {
+            Text("No matching notes")
+                .font(.system(size: 13))
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            populatedList
+        }
+    }
+
+    private var populatedList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if filtered.isEmpty {
-                        Text("No matching notes")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.tertiary)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(.top, 40)
-                    }
                     ForEach(Array(filtered.enumerated()), id: \.element.note.id) { index, scored in
                         row(for: scored.note, isSelected: index == selectedIndex)
                             .id(scored.note.id)
                             .contentShape(Rectangle())
                             .onHover { hovering in
+                                guard !isUsingKeyboard else { return }
                                 if hovering { selectedIndex = index }
                             }
                             .accessibilityAddTraits(.isButton)
@@ -89,6 +105,9 @@ struct QuickSwitcher: View {
                             }
                     }
                 }
+            }
+            .onContinuousHover { phase in
+                if case .active = phase { isUsingKeyboard = false }
             }
             .onChange(of: selectedIndex) { _, newValue in
                 guard filtered.indices.contains(newValue) else { return }
