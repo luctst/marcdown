@@ -62,4 +62,43 @@ struct CommandPaletteFilterTests {
         let result = CommandPalette.filter(actions: actions, query: "note")
         #expect(result.map(\.id) == actions.map(\.id))
     }
+
+    // MARK: - Cross-section filtering
+
+    /// Builds a mixed list mirroring the real palette: actionable command rows
+    /// plus the markdown reference rows. Used to assert the filter slices
+    /// across both sections rather than within one.
+    private func makeMixedActions() -> [PaletteAction] {
+        makeActions() + makeMarkdownReferenceRows()
+    }
+
+    @Test("Filter spans both sections — \"bold\" matches only the markdown row")
+    func filterMatchesMarkdownRowOnly() {
+        let actions = makeMixedActions()
+        let result = CommandPalette.filter(actions: actions, query: "bold")
+        #expect(result.map(\.id) == ["md-bold"])
+    }
+
+    @Test("Filter spans both sections — \"delete\" matches only the command row")
+    func filterMatchesCommandRowOnly() {
+        let actions = makeMixedActions()
+        let result = CommandPalette.filter(actions: actions, query: "delete")
+        #expect(result.map(\.id) == ["delete"])
+    }
+
+    @Test("Filter \"note\" matches command rows but no markdown rows")
+    func filterMatchesAllCommandsNoMarkdown() {
+        let actions = makeMixedActions()
+        let result = CommandPalette.filter(actions: actions, query: "note")
+        let markdownInResult = result.filter { $0.section == .markdown }
+        #expect(markdownInResult.isEmpty)
+        #expect(result.count == 5)  // five "Note"-bearing command rows
+    }
+
+    @Test("Filter that matches neither section returns empty")
+    func filterEmptyResult() {
+        let actions = makeMixedActions()
+        let result = CommandPalette.filter(actions: actions, query: "zzzzzz")
+        #expect(result.isEmpty)
+    }
 }
