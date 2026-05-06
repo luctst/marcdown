@@ -8,6 +8,7 @@ struct QuickSwitcher: View {
     let onOpen: (URL) -> Void
     let onDismiss: () -> Void
     let currentNote: URL?
+    let isBootstrapping: Bool
 
     @State private var query: String = ""
     @State private var selectedIndex: Int = 0
@@ -26,7 +27,7 @@ struct QuickSwitcher: View {
             Divider()
             list
         }
-        .frame(width: 520, height: 340)
+        .frame(maxWidth: 520, maxHeight: 340)
         .background(VisualEffectBackground())
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
@@ -52,6 +53,7 @@ struct QuickSwitcher: View {
             TextField("Find a note", text: $query)
                 .textFieldStyle(.plain)
                 .focused($queryFieldFocused)
+                .disabled(isBootstrapping)
                 .onSubmit { commitSelection() }
                 .onKeyPress(.upArrow) {
                     isUsingKeyboard = true
@@ -77,13 +79,25 @@ struct QuickSwitcher: View {
 
     @ViewBuilder
     private var list: some View {
-        if filtered.isEmpty {
-            Text("No matching notes")
+        if isBootstrapping {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if filtered.isEmpty {
+            Text(emptyStateText)
                 .font(.system(size: 13))
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             populatedList
+        }
+    }
+
+    private var emptyStateText: String {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
+            return "No notes yet. Press \u{2318}N to create one."
+        } else {
+            return "No matches for \"\(trimmed)\"."
         }
     }
 

@@ -235,8 +235,11 @@ struct PanelRootView: View {
                     activeOverlay = .none
                 },
                 onDismiss: { activeOverlay = .none },
-                currentNote: store.currentNote
+                currentNote: store.currentNote,
+                isBootstrapping: store.isBootstrapping
             )
+            .padding(.horizontal, 24)
+            .padding(.vertical, 32)
         }
         .transition(.opacity)
     }
@@ -250,6 +253,8 @@ struct PanelRootView: View {
                 actions: paletteActions,
                 onDismiss: { activeOverlay = .none }
             )
+            .padding(.horizontal, 24)
+            .padding(.vertical, 32)
         }
         .transition(.opacity)
     }
