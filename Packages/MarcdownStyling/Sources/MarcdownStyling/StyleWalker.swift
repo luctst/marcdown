@@ -148,11 +148,23 @@ struct StyleWalker: @preconcurrency MarkupWalker {
     }
 
     mutating func visitTable(_ table: Table) {
-        // Tables are not styled in this slice. Fall back to a monospaced font
-        // over the whole block so the pipes remain readable. Do not descend —
-        // per-cell styling would fight with the coarse monospace treatment.
-        guard let range = index.nsRange(table.range), range.length > 0 else { return }
-        addAttributes([.font: monospacedFont()], range: range)
+        descendInto(table)
+    }
+
+    mutating func visitTableHead(_ head: Table.Head) {
+        descendInto(head)
+    }
+
+    mutating func visitTableBody(_ body: Table.Body) {
+        descendInto(body)
+    }
+
+    mutating func visitTableRow(_ row: Table.Row) {
+        descendInto(row)
+    }
+
+    mutating func visitTableCell(_ cell: Table.Cell) {
+        descendInto(cell)
     }
 
     // MARK: - Inlines
