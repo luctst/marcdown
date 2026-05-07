@@ -29,9 +29,26 @@ func computeMaxWidth(screenWidth: CGFloat) -> CGFloat {
     return max(candidate, PanelSizeConstraints.minWidth)
 }
 
+/// Pure helper: returns the saved origin if it lies within any of the provided
+/// screen visible frames, otherwise nil. The caller should fall back to
+/// centering when this returns nil.
+///
+/// Kept top-level (not a method) so it can be unit-tested without spinning up
+/// AppKit / NSScreen — same pattern as `computeMaxWidth`.
+func resolvePanelOrigin(saved: CGPoint?, screenVisibleFrames: [CGRect]) -> CGPoint? {
+    guard let saved else { return nil }
+    guard !screenVisibleFrames.isEmpty else { return nil }
+    if screenVisibleFrames.contains(where: { $0.contains(saved) }) {
+        return saved
+    }
+    return nil
+}
+
 /// Owns the lifecycle of the floating editor panel.
 @MainActor
 final class PanelController: NSObject, NSWindowDelegate {
+    private static let originKey = "dev.marcdown.panelOrigin"
+
     private let panel: MarcdownPanel
     private let store: NotesStore
     /// The app that was frontmost the moment we activated. Restored when the
@@ -72,7 +89,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
         panel.delegate = self
         updateMaxSizeForCurrentScreen()
-        panel.center()
+        restoreOrPlace()
     }
 
     func toggle() {
@@ -85,7 +102,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     func show() {
         updateMaxSizeForCurrentScreen()
-        recenterOnActiveScreen()
+        restoreOrPlace()
         // Snapshot the frontmost app so we can hand focus back when the user
         // dismisses the panel. Skip if it's us — would cause an empty desktop
         // on hide.
@@ -124,6 +141,31 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.setFrame(frame, display: false)
     }
 
+    private func saveOrigin() {
+        let o = panel.frame.origin
+        UserDefaults.standard.set([o.x, o.y], forKey: Self.originKey)
+    }
+
+    /// Restore last-saved origin if it still lands on a connected screen;
+    /// otherwise fall back to centering. Size is intentionally not persisted.
+    private func restoreOrPlace() {
+        let saved: CGPoint?
+        if let raw = UserDefaults.standard.array(forKey: Self.originKey) as? [CGFloat],
+            raw.count == 2
+        {
+            saved = CGPoint(x: raw[0], y: raw[1])
+        } else {
+            saved = nil
+        }
+        let frames = NSScreen.screens.map { $0.visibleFrame }
+        if let origin = resolvePanelOrigin(saved: saved, screenVisibleFrames: frames) {
+            let frame = NSRect(origin: origin, size: panel.frame.size)
+            panel.setFrame(frame, display: false)
+        } else {
+            recenterOnActiveScreen()
+        }
+    }
+
     /// `NSWindow.maxSize` is a static cap — it must be refreshed whenever
     /// the active screen changes, since the small-screen clamp depends on it.
     private func updateMaxSizeForCurrentScreen() {
@@ -142,6 +184,10 @@ final class PanelController: NSObject, NSWindowDelegate {
             // The user already moved to another app — don't yank them back.
             self.hide(restoreFocus: false)
         }
+    }
+
+    nonisolated func windowDidMove(_ notification: Notification) {
+        MainActor.assumeIsolated { self.saveOrigin() }
     }
 
     /// Called by AppKit on every tick of the user's live-resize gesture.
