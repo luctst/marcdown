@@ -111,7 +111,12 @@ func makeMarkdownReferenceRows() -> [PaletteAction] {
         markdownReference(id: "md-heading", title: "Heading", icon: "number", syntax: "# x"),
         markdownReference(id: "md-list", title: "List", icon: "list.bullet", syntax: "- x"),
         markdownReference(id: "md-ordered-list", title: "Ordered list", icon: "list.number", syntax: "1. x"),
-        markdownReference(id: "md-inline-code", title: "Inline code", icon: "chevron.left.forwardslash.chevron.right", syntax: "`x`"),
+        markdownReference(
+            id: "md-inline-code",
+            title: "Inline code",
+            icon: "chevron.left.forwardslash.chevron.right",
+            syntax: "`x`"
+        ),
         markdownReference(id: "md-code-block", title: "Code block", icon: "curlybraces", syntax: "```x```"),
         markdownReference(id: "md-link", title: "Link", icon: "link", syntax: "[x](y)"),
         markdownReference(id: "md-quote", title: "Quote", icon: "text.quote", syntax: "> x"),

@@ -228,8 +228,22 @@ struct CommandPaletteSectionTests {
     private func mixedActions() -> [PaletteAction] {
         [
             PaletteAction(id: "leaf-A", title: "Leaf A", icon: "a", shortcutLabel: "") {},
-            PaletteAction(id: "ref-1", title: "Ref 1", icon: "r", shortcutLabel: "**x**", kind: .reference, section: .markdown),
-            PaletteAction(id: "ref-2", title: "Ref 2", icon: "r", shortcutLabel: "*x*", kind: .reference, section: .markdown),
+            PaletteAction(
+                id: "ref-1",
+                title: "Ref 1",
+                icon: "r",
+                shortcutLabel: "**x**",
+                kind: .reference,
+                section: .markdown
+            ),
+            PaletteAction(
+                id: "ref-2",
+                title: "Ref 2",
+                icon: "r",
+                shortcutLabel: "*x*",
+                kind: .reference,
+                section: .markdown
+            ),
             PaletteAction(id: "leaf-B", title: "Leaf B", icon: "b", shortcutLabel: "") {},
         ]
     }
@@ -265,8 +279,22 @@ struct CommandPaletteSectionTests {
     @Test("nextIndex returns a valid index even when every row is a reference")
     func referenceOnlyListIsTraversable() {
         let actions: [PaletteAction] = [
-            PaletteAction(id: "ref-1", title: "Ref 1", icon: "r", shortcutLabel: "x", kind: .reference, section: .markdown),
-            PaletteAction(id: "ref-2", title: "Ref 2", icon: "r", shortcutLabel: "y", kind: .reference, section: .markdown),
+            PaletteAction(
+                id: "ref-1",
+                title: "Ref 1",
+                icon: "r",
+                shortcutLabel: "x",
+                kind: .reference,
+                section: .markdown
+            ),
+            PaletteAction(
+                id: "ref-2",
+                title: "Ref 2",
+                icon: "r",
+                shortcutLabel: "y",
+                kind: .reference,
+                section: .markdown
+            ),
         ]
         // All rows are reachable now — Enter is still a no-op (covered
         // separately) but nav must not pin selection at index 0.
@@ -284,7 +312,14 @@ struct CommandPaletteSectionTests {
     @Test("firstIndex returns 0 for a non-empty list, regardless of kind")
     func firstIndexLandsOnFirstRow() {
         let actions: [PaletteAction] = [
-            PaletteAction(id: "ref-1", title: "Ref 1", icon: "r", shortcutLabel: "x", kind: .reference, section: .markdown),
+            PaletteAction(
+                id: "ref-1",
+                title: "Ref 1",
+                icon: "r",
+                shortcutLabel: "x",
+                kind: .reference,
+                section: .markdown
+            ),
             PaletteAction(id: "leaf", title: "Leaf", icon: "a", shortcutLabel: "") {},
         ]
         // No more "skip leading references" — the user must be able to land
