@@ -148,11 +148,106 @@ struct StyleWalker: @preconcurrency MarkupWalker {
     }
 
     mutating func visitTable(_ table: Table) {
-        // Tables are not styled in this slice. Fall back to a monospaced font
-        // over the whole block so the pipes remain readable. Do not descend —
-        // per-cell styling would fight with the coarse monospace treatment.
-        guard let range = index.nsRange(table.range), range.length > 0 else { return }
-        addAttributes([.font: monospacedFont()], range: range)
+        // Dim the separator/alignment row (the `| --- | :---: |` line). It is
+        // not represented as a node in swift-markdown's AST — the parser
+        // consumes it and stores its information as `Table.columnAlignments`.
+        // We therefore detect it in the source: any line that lies inside the
+        // table's range and whose non-whitespace characters are all `|`, `-`,
+        // or `:` is a separator row.
+        if let tableRange = index.nsRange(table.range), tableRange.length > 0 {
+            dimSeparatorRows(in: tableRange)
+        }
+        descendInto(table)
+    }
+
+    mutating func visitTableHead(_ head: Table.Head) {
+        if let range = index.nsRange(head.range), range.length > 0 {
+            dimPipes(in: range)
+        }
+        descendInto(head)
+    }
+
+    mutating func visitTableBody(_ body: Table.Body) {
+        descendInto(body)
+    }
+
+    mutating func visitTableRow(_ row: Table.Row) {
+        if let range = index.nsRange(row.range), range.length > 0 {
+            dimPipes(in: range)
+        }
+        descendInto(row)
+    }
+
+    mutating func visitTableCell(_ cell: Table.Cell) {
+        descendInto(cell)
+    }
+
+    /// Applies `theme.dim` to every `|` (U+007C) inside `range`.
+    private func dimPipes(in range: NSRange) {
+        let storageString = storage.string as NSString
+        let upper = min(range.location + range.length, storageString.length)
+        var i = max(0, range.location)
+        while i < upper {
+            if storageString.character(at: i) == 0x7C {
+                addAttributes(
+                    [.foregroundColor: theme.dim],
+                    range: NSRange(location: i, length: 1)
+                )
+            }
+            i += 1
+        }
+    }
+
+    /// Scans every line that lies inside `tableRange` and applies `theme.dim`
+    /// to lines whose non-whitespace content is composed only of `|`, `-`, or
+    /// `:`. This is how we dim GFM separator/alignment rows, which are not
+    /// surfaced as AST nodes by swift-markdown.
+    private func dimSeparatorRows(in tableRange: NSRange) {
+        let storageString = storage.string as NSString
+        let upper = min(tableRange.location + tableRange.length, storageString.length)
+        var lineStart = max(0, tableRange.location)
+        while lineStart < upper {
+            // Find end of this line (exclusive of newline).
+            var lineEnd = lineStart
+            while lineEnd < upper {
+                let ch = storageString.character(at: lineEnd)
+                if ch == 0x0A || ch == 0x0D { break }
+                lineEnd += 1
+            }
+            if lineEnd > lineStart, isSeparatorLine(start: lineStart, end: lineEnd, in: storageString) {
+                let range = NSRange(location: lineStart, length: lineEnd - lineStart)
+                addAttributes([.foregroundColor: theme.dim], range: range)
+            }
+            // Advance past newline (handle CRLF).
+            if lineEnd < upper, storageString.character(at: lineEnd) == 0x0D {
+                lineEnd += 1
+            }
+            if lineEnd < upper, storageString.character(at: lineEnd) == 0x0A {
+                lineEnd += 1
+            }
+            if lineEnd == lineStart { break }
+            lineStart = lineEnd
+        }
+    }
+
+    /// True if every character in `[start, end)` is one of `|`, `-`, `:`,
+    /// space, or tab, AND the line contains at least one `|` and one `-` —
+    /// that's the GFM separator-row signature. Plain dashes alone (a thematic
+    /// break) shouldn't reach this code path because they live outside any
+    /// table, but the `|` check makes the predicate robust regardless.
+    private func isSeparatorLine(start: Int, end: Int, in storageString: NSString) -> Bool {
+        var sawPipe = false
+        var sawDash = false
+        for i in start..<end {
+            switch storageString.character(at: i) {
+            case 0x7C: sawPipe = true               // |
+            case 0x2D: sawDash = true               // -
+            case 0x3A: break                         // :
+            case 0x20, 0x09: break                   // space, tab
+            default: return false
+            }
+        }
+        return sawPipe && sawDash
     }
 
     // MARK: - Inlines
