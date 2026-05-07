@@ -37,7 +37,10 @@ func nextActiveOverlay(from current: ActiveOverlay, toggle: OverlayToggle) -> Ac
 /// unit-tested without mounting `PanelRootView` or constructing a `NotesStore`.
 ///
 /// The order returned here is the order users see in the palette and is
-/// load-bearing for keyboard navigation tests.
+/// load-bearing for keyboard navigation tests. The actionable Commands rows
+/// come first; the non-actionable Markdown reference rows are appended last
+/// and tagged `section: .markdown` so the view layer renders them under their
+/// own header.
 @MainActor
 func makePaletteActions(
     setOverlay: @escaping @MainActor (ActiveOverlay) -> Void,
@@ -48,7 +51,7 @@ func makePaletteActions(
     prev: @escaping @MainActor () -> Void,
     next: @escaping @MainActor () -> Void
 ) -> [PaletteAction] {
-    [
+    let commands: [PaletteAction] = [
         PaletteAction(id: "new-note", title: "New Note", icon: "plus", shortcutLabel: "⌘N") {
             setOverlay(.none)
             newNote()
@@ -89,6 +92,48 @@ func makePaletteActions(
             kind: .submenu(.exportFormat)
         ),
     ]
+    return commands + makeMarkdownReferenceRows()
+}
+
+/// Builds the non-actionable Markdown reference rows shown in the palette's
+/// second section. Each row's `shortcutLabel` is the syntax itself (e.g.
+/// `**x**` for Bold) so the existing chip column doubles as a syntax cheat
+/// sheet without new chrome.
+///
+/// The list is intentionally conservative — it mirrors the visit methods in
+/// `MarcdownStyling.StyleWalker` that produce a clean one-liner. Tables,
+/// images, and thematic breaks are deferred. See plan §3 for the full table.
+@MainActor
+func makeMarkdownReferenceRows() -> [PaletteAction] {
+    [
+        markdownReference(id: "md-bold", title: "Bold", icon: "bold", syntax: "**x**"),
+        markdownReference(id: "md-italic", title: "Italic", icon: "italic", syntax: "*x*"),
+        markdownReference(id: "md-heading", title: "Heading", icon: "number", syntax: "# x"),
+        markdownReference(id: "md-list", title: "List", icon: "list.bullet", syntax: "- x"),
+        markdownReference(id: "md-ordered-list", title: "Ordered list", icon: "list.number", syntax: "1. x"),
+        markdownReference(
+            id: "md-inline-code",
+            title: "Inline code",
+            icon: "chevron.left.forwardslash.chevron.right",
+            syntax: "`x`"
+        ),
+        markdownReference(id: "md-code-block", title: "Code block", icon: "curlybraces", syntax: "```x```"),
+        markdownReference(id: "md-link", title: "Link", icon: "link", syntax: "[x](y)"),
+        markdownReference(id: "md-quote", title: "Quote", icon: "text.quote", syntax: "> x"),
+        markdownReference(id: "md-strikethrough", title: "Strikethrough", icon: "strikethrough", syntax: "~~x~~"),
+    ]
+}
+
+@MainActor
+private func markdownReference(id: String, title: String, icon: String, syntax: String) -> PaletteAction {
+    PaletteAction(
+        id: id,
+        title: title,
+        icon: icon,
+        shortcutLabel: syntax,
+        kind: .reference,
+        section: .markdown
+    )
 }
 
 struct PanelRootView: View {

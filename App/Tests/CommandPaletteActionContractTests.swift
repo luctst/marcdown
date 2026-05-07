@@ -113,6 +113,42 @@ struct CommandPaletteActionContractTests {
         #expect(observed.overlay == .none)
     }
 
+    // MARK: - Reference rows are non-actionable
+
+    /// Reference rows must expose a nil handler. The view-layer commit path
+    /// is locked down separately: `invoke(.reference)` is a no-op (palette
+    /// stays open). Asserting `handler == nil` here guarantees that any
+    /// hypothetical caller that walks `handler` will skip these rows rather
+    /// than dispatching a stale or unrelated closure.
+    @Test("Markdown reference rows have no handler")
+    func markdownReferenceRowsHaveNoHandler() {
+        let observed = Observed()
+        let actions = makeActions(capturing: observed)
+
+        let referenceRows = actions.filter { $0.section == .markdown }
+        #expect(!referenceRows.isEmpty)
+        for row in referenceRows {
+            #expect(row.handler == nil)
+        }
+    }
+
+    @Test("Markdown reference rows do not change overlay state")
+    func markdownReferenceRowsLeaveOverlayUnchanged() {
+        let observed = Observed()
+        observed.overlay = .palette  // simulate "palette is open"
+        let actions = makeActions(capturing: observed)
+
+        for row in actions where row.section == .markdown {
+            // Reference rows have no handler — invoking via the test path is
+            // a no-op by definition. Confirming overlay stays put proves we
+            // never accidentally bind a closure that would dismiss the
+            // palette behind the user's back.
+            row.handler?()
+        }
+
+        #expect(observed.overlay == .palette)
+    }
+
     /// Reference-type spy so the @MainActor closure can mutate observed state
     /// without `inout` capture gymnastics.
     @MainActor
