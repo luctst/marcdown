@@ -217,13 +217,13 @@ struct CommandPaletteSectionTests {
         #expect(action.isActionable)
     }
 
-    // MARK: - nextActionableIndex
+    // MARK: - nextIndex
 
     /// Builds a tiny mixed list to exercise the nav helper without touching
     /// the real factory. Index layout:
     ///   0: leaf-A (actionable)
-    ///   1: ref-1  (skip)
-    ///   2: ref-2  (skip)
+    ///   1: ref-1  (reference, but still reachable)
+    ///   2: ref-2  (reference, but still reachable)
     ///   3: leaf-B (actionable)
     private func mixedActions() -> [PaletteAction] {
         [
@@ -234,57 +234,67 @@ struct CommandPaletteSectionTests {
         ]
     }
 
-    @Test("Down-arrow from a leaf skips reference rows to the next leaf")
-    func downSkipsReferenceRows() {
+    @Test("Down-arrow from a leaf lands on the next row, including reference rows")
+    func downReachesReferenceRows() {
         let actions = mixedActions()
-        // From index 0 (leaf-A), +1 should land on leaf-B at index 3.
-        #expect(nextActionableIndex(in: actions, from: 0, delta: 1) == 3)
+        // From index 0 (leaf-A), +1 should land on ref-1 at index 1 — reference
+        // rows must be reachable so the user can scroll the markdown legend
+        // with the keyboard.
+        #expect(nextIndex(in: actions, from: 0, delta: 1) == 1)
     }
 
-    @Test("Down-arrow wraps from last leaf back to first leaf")
-    func downWrapsToFirstActionable() {
+    @Test("Down-arrow walks through every row in order")
+    func downWalksEveryRow() {
         let actions = mixedActions()
-        // From index 3 (leaf-B), +1 should wrap to leaf-A at index 0.
-        #expect(nextActionableIndex(in: actions, from: 3, delta: 1) == 0)
+        #expect(nextIndex(in: actions, from: 1, delta: 1) == 2)
+        #expect(nextIndex(in: actions, from: 2, delta: 1) == 3)
     }
 
-    @Test("Up-arrow from first leaf wraps to last actionable, skipping refs")
-    func upWrapsAndSkips() {
+    @Test("Down-arrow wraps from the last row back to the first")
+    func downWrapsToFirst() {
         let actions = mixedActions()
-        // From index 0 (leaf-A), -1 should wrap to leaf-B at index 3.
-        #expect(nextActionableIndex(in: actions, from: 0, delta: -1) == 3)
+        #expect(nextIndex(in: actions, from: 3, delta: 1) == 0)
     }
 
-    @Test("nextActionableIndex returns nil when no row is actionable")
-    func noActionableReturnsNil() {
+    @Test("Up-arrow wraps from the first row to the last")
+    func upWrapsToLast() {
+        let actions = mixedActions()
+        #expect(nextIndex(in: actions, from: 0, delta: -1) == 3)
+    }
+
+    @Test("nextIndex returns a valid index even when every row is a reference")
+    func referenceOnlyListIsTraversable() {
         let actions: [PaletteAction] = [
             PaletteAction(id: "ref-1", title: "Ref 1", icon: "r", shortcutLabel: "x", kind: .reference, section: .markdown),
             PaletteAction(id: "ref-2", title: "Ref 2", icon: "r", shortcutLabel: "y", kind: .reference, section: .markdown),
         ]
-        #expect(nextActionableIndex(in: actions, from: 0, delta: 1) == nil)
+        // All rows are reachable now — Enter is still a no-op (covered
+        // separately) but nav must not pin selection at index 0.
+        #expect(nextIndex(in: actions, from: 0, delta: 1) == 1)
+        #expect(nextIndex(in: actions, from: 1, delta: 1) == 0)
     }
 
-    @Test("nextActionableIndex returns nil for an empty list")
+    @Test("nextIndex returns nil for an empty list")
     func emptyListReturnsNil() {
-        #expect(nextActionableIndex(in: [], from: 0, delta: 1) == nil)
+        #expect(nextIndex(in: [], from: 0, delta: 1) == nil)
     }
 
-    // MARK: - firstActionableIndex
+    // MARK: - firstIndex
 
-    @Test("firstActionableIndex skips leading reference rows")
-    func firstActionableSkipsRefs() {
+    @Test("firstIndex returns 0 for a non-empty list, regardless of kind")
+    func firstIndexLandsOnFirstRow() {
         let actions: [PaletteAction] = [
             PaletteAction(id: "ref-1", title: "Ref 1", icon: "r", shortcutLabel: "x", kind: .reference, section: .markdown),
             PaletteAction(id: "leaf", title: "Leaf", icon: "a", shortcutLabel: "") {},
         ]
-        #expect(firstActionableIndex(in: actions) == 1)
+        // No more "skip leading references" — the user must be able to land
+        // on a reference row directly when the filter only matches refs.
+        #expect(firstIndex(in: actions) == 0)
     }
 
-    @Test("firstActionableIndex returns nil when no row is actionable")
-    func firstActionableNoneReturnsNil() {
-        let actions: [PaletteAction] = [
-            PaletteAction(id: "ref-1", title: "Ref 1", icon: "r", shortcutLabel: "x", kind: .reference, section: .markdown)
-        ]
-        #expect(firstActionableIndex(in: actions) == nil)
+    @Test("firstIndex returns nil for an empty list")
+    func firstIndexEmptyReturnsNil() {
+        let actions: [PaletteAction] = []
+        #expect(firstIndex(in: actions) == nil)
     }
 }

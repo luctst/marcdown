@@ -103,34 +103,28 @@ func paletteSubModeAfterEscape(current: PaletteSubMode) -> PaletteSubMode? {
     }
 }
 
-/// Pure helper used by ↑/↓ navigation to find the next actionable row from
-/// `from`, walking the list by `delta` (±1 in practice) and wrapping at the
-/// edges. Returns `nil` when the list contains no actionable rows. Skips
-/// `.reference` rows so arrow keys never park on them.
+/// Pure helper used by ↑/↓ navigation to find the next row from `from`,
+/// walking the list by `delta` (±1 in practice) and wrapping at the edges.
+/// Returns `nil` when the list is empty.
 ///
-/// The wrap is deliberate: existing nav cycles top↔bottom, and the markdown
-/// reference rows must not break that — an ↑ from the first command should
-/// land on the last command, never on the last markdown row.
+/// Every filtered row is reachable — including `.reference` rows. The Enter
+/// behavior on a `.reference` row remains a no-op (handled in `invoke`), but
+/// the highlight must still be able to land there so the user can scroll
+/// through the markdown reference using only the keyboard.
 @MainActor
-func nextActionableIndex(in actions: [PaletteAction], from: Int, delta: Int) -> Int? {
+func nextIndex(in actions: [PaletteAction], from: Int, delta: Int) -> Int? {
     guard !actions.isEmpty else { return nil }
-    guard actions.contains(where: { $0.isActionable }) else { return nil }
     let count = actions.count
     let step = delta == 0 ? 1 : delta
-    var index = ((from % count) + count) % count
-    for _ in 0..<count {
-        index = (index + step + count) % count
-        if actions[index].isActionable { return index }
-    }
-    return nil
+    let base = ((from % count) + count) % count
+    return (base + step + count) % count
 }
 
-/// Pure helper used to land `selectedIndex` on the first actionable row when
-/// the list mounts or the filter changes. Returns `nil` if no row is
-/// actionable (e.g. filter only matches reference rows).
+/// Pure helper used to land `selectedIndex` on the first row when the list
+/// mounts or the filter changes. Returns `nil` for an empty list.
 @MainActor
-func firstActionableIndex(in actions: [PaletteAction]) -> Int? {
-    actions.firstIndex(where: { $0.isActionable })
+func firstIndex(in actions: [PaletteAction]) -> Int? {
+    actions.indices.first
 }
 
 /// Builds the three rows shown when the palette is in `.exportFormat`. Each
@@ -253,10 +247,7 @@ struct CommandPalette: View {
         )
         .shadow(radius: 30, y: 10)
         .onAppear {
-            // Land on the first actionable row so ↵ does the right thing even
-            // when reference rows exist at the top of the filtered list. Falls
-            // back to 0 when nothing is actionable (filter shows only refs).
-            selectedIndex = firstActionableIndex(in: filtered) ?? 0
+            selectedIndex = firstIndex(in: filtered) ?? 0
             // Defer focus assignment by one runloop tick. When this overlay is
             // mounted as a result of dismissing another overlay (palette →
             // switcher), the previous TextField is still tearing down its
@@ -301,10 +292,7 @@ struct CommandPalette: View {
                     return .handled
                 }
                 .onChange(of: query) { _, _ in
-                    // After a filter change, snap back to the first actionable
-                    // row in the new filtered list. Falls back to 0 if the
-                    // filter only matches reference rows.
-                    selectedIndex = firstActionableIndex(in: filtered) ?? 0
+                    selectedIndex = firstIndex(in: filtered) ?? 0
                 }
                 .accessibilityLabel(searchAccessibilityLabel)
         }
@@ -338,10 +326,6 @@ struct CommandPalette: View {
                                     .contentShape(Rectangle())
                                     .onHover { hovering in
                                         guard !isUsingKeyboard else { return }
-                                        // Skip non-actionable rows so the
-                                        // selection highlight never parks on a
-                                        // markdown reference entry.
-                                        guard action.isActionable else { return }
                                         if hovering { selectedIndex = index }
                                     }
                                     .accessibilityAddTraits(.isButton)
@@ -423,7 +407,7 @@ struct CommandPalette: View {
     }
 
     private func moveSelection(_ delta: Int) {
-        guard let next = nextActionableIndex(in: filtered, from: selectedIndex, delta: delta)
+        guard let next = nextIndex(in: filtered, from: selectedIndex, delta: delta)
         else { return }
         selectedIndex = next
     }
