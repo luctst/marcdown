@@ -38,3 +38,74 @@ struct PanelControllerTests {
         #expect(computeMaxWidth(screenWidth: 735) == 719)
     }
 }
+
+@Suite("resolvePanelOrigin fallback")
+struct ResolvePanelOriginTests {
+    @Test("No saved origin returns nil")
+    func noSavedOriginReturnsNil() {
+        let screens = [CGRect(x: 0, y: 0, width: 1920, height: 1080)]
+        #expect(resolvePanelOrigin(saved: nil, screenVisibleFrames: screens) == nil)
+    }
+
+    @Test("Empty screens list returns nil")
+    func emptyScreensReturnsNil() {
+        // Edge case: app launching before any display has been detected.
+        // Caller must center; we have no frame to validate against.
+        let saved = CGPoint(x: 100, y: 200)
+        #expect(resolvePanelOrigin(saved: saved, screenVisibleFrames: []) == nil)
+    }
+
+    @Test("Origin inside the only screen is returned")
+    func originInsideSingleScreenIsReturned() {
+        let screens = [CGRect(x: 0, y: 0, width: 1920, height: 1080)]
+        let saved = CGPoint(x: 100, y: 200)
+        #expect(resolvePanelOrigin(saved: saved, screenVisibleFrames: screens) == saved)
+    }
+
+    @Test("Origin off-screen returns nil")
+    func originOffScreenReturnsNil() {
+        // Disconnected-display fallback: the saved point belongs to a monitor
+        // that's no longer attached, so we must drop it and let the caller
+        // re-center. PM review explicitly called this path out.
+        let screens = [CGRect(x: 0, y: 0, width: 1920, height: 1080)]
+        let saved = CGPoint(x: -500, y: -500)
+        #expect(resolvePanelOrigin(saved: saved, screenVisibleFrames: screens) == nil)
+    }
+
+    @Test("Origin on a secondary screen is returned")
+    func originOnSecondaryScreenIsReturned() {
+        // The bug we're explicitly preventing: treating "not on primary" as
+        // "off-screen" would yank multi-monitor users back to the main display
+        // every launch.
+        let screens = [
+            CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            CGRect(x: 1920, y: 0, width: 1920, height: 1080),
+        ]
+        let saved = CGPoint(x: 2500, y: 400)
+        #expect(resolvePanelOrigin(saved: saved, screenVisibleFrames: screens) == saved)
+    }
+
+    @Test("Origin in the gap between screens returns nil")
+    func originInGapBetweenScreensReturnsNil() {
+        // Primary ends at x=1920, secondary starts at x=3000. The saved point
+        // at x=2500 fell inside what used to be a screen but isn't anymore.
+        let screens = [
+            CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            CGRect(x: 3000, y: 0, width: 1920, height: 1080),
+        ]
+        let saved = CGPoint(x: 2500, y: 500)
+        #expect(resolvePanelOrigin(saved: saved, screenVisibleFrames: screens) == nil)
+    }
+
+    @Test("Point on the max edge is treated as outside")
+    func pointOnMaxEdgeIsOutside() {
+        // CGRect.contains is half-open: it includes the origin edge but
+        // excludes the max edge. A point at exactly (width, 0) is therefore
+        // *not* inside a single-screen frame — and falling through to nil is
+        // the correct behavior, since that pixel column belongs to the next
+        // screen (or to nothing at all).
+        let screens = [CGRect(x: 0, y: 0, width: 1920, height: 1080)]
+        let saved = CGPoint(x: 1920, y: 0)
+        #expect(resolvePanelOrigin(saved: saved, screenVisibleFrames: screens) == nil)
+    }
+}
