@@ -1,8 +1,14 @@
 # Marcdown
 
-A background-only macOS markdown editor summoned by a global keyboard shortcut. Press **Cmd+Shift+Space** to open a floating panel; type markdown with live preview (headings, bold, italic, code, lists, blockquotes, tables). Notes are plain `.md` files in `~/marcdown/`, so you own your data and can sync them however you like.
+Hit `Cmd+Shift+Space` anywhere on macOS. Write Markdown. Done.
 
-Built to replace Raycast Notes (€8/mo) as a native, keyboard-first alternative with markdown table support and a transparent architecture.
+A background-only macOS markdown editor. Floating panel, global hotkey, plain `.md` files in `~/marcdown/`. No Electron, no account, no cloud. Native Swift 6, AppKit + SwiftUI.
+
+![Marcdown demo](docs/demo.gif)
+
+[**↓ Download v1.0.0 (DMG, macOS 15+)**](https://github.com/luctst/marcdown/releases/latest)
+
+---
 
 ## Why this exists
 
