@@ -40,9 +40,12 @@ targets:
     deploymentTarget: "15.0"
     sources:
       - path: App/Sources
+      - path: App/Resources/Assets.xcassets
       - path: App/Resources
         type: folder
         buildPhase: none
+        excludes:
+          - "Assets.xcassets"
     resources: []
     settings:
       base:
