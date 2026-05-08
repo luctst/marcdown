@@ -158,10 +158,14 @@ func makeFormatChooserActions(
 
 struct CommandPalette: View {
     let actions: [PaletteAction]
+    /// Lifted to a binding so the AppKit `EscapeKeyMonitor` in `PanelRootView`
+    /// can pop the sub-mode before the local NSEvent monitor consumes the
+    /// keystroke. Keeping it here as `@State` would let the monitor collapse
+    /// the entire palette out from under a sub-mode.
+    @Binding var subMode: PaletteSubMode
     let onDismiss: () -> Void
     let onExport: @MainActor (ExportFormat) -> Void
 
-    @State private var subMode: PaletteSubMode = .root
     @State private var query: String = ""
     @State private var selectedIndex: Int = 0
     /// True while the user is driving selection from the keyboard. Cleared on
