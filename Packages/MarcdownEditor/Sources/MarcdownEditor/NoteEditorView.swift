@@ -2,6 +2,16 @@ import AppKit
 import MarcdownStyling
 import SwiftUI
 
+extension Notification.Name {
+    /// Posted by the App target whenever an overlay is dismissed. The editor
+    /// reclaims first responder so the user can resume typing without a
+    /// pointer click. The name string must stay in sync with the App target's
+    /// `Notification.Name.marcdownEditorShouldFocus` declaration — a string
+    /// match is intentional here to avoid creating a dependency from the
+    /// editor package back into the App target.
+    static let marcdownEditorShouldFocus = Notification.Name("MarcdownEditorShouldFocus")
+}
+
 /// SwiftUI wrapper around an `NSTextView` for editing markdown notes with
 /// live, Typora/Obsidian-style inline styling.
 ///
@@ -105,9 +115,41 @@ public struct NoteEditorView: NSViewRepresentable {
         private let styler = MarkdownStyler()
         /// Held strongly because `NSLayoutManager.delegate` is `weak`.
         let layoutDelegate = ConcealmentLayoutDelegate()
+        /// Token for the focus-restore observer, removed on deinit. Mirrors
+        /// the existing pattern used elsewhere for `NotificationCenter`
+        /// subscriptions inside Coordinators. `nonisolated(unsafe)` so the
+        /// nonisolated `deinit` can read the token to unregister; access from
+        /// `init` and the observer block stays on `MainActor`.
+        private nonisolated(unsafe) var focusObserver: NSObjectProtocol?
 
         init(text: Binding<String>) {
             self.text = text
+            super.init()
+            // Reclaim first responder whenever an overlay is dismissed.
+            // Posted from `PanelRootView.dismissActiveOverlay()`. Using a
+            // notification (instead of threading a callback through the
+            // `NSViewRepresentable`) mirrors the `marcdownPanelDidHide`
+            // pattern and keeps the wiring loosely coupled.
+            focusObserver = NotificationCenter.default.addObserver(
+                forName: .marcdownEditorShouldFocus,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.reclaimFirstResponder()
+                }
+            }
+        }
+
+        deinit {
+            if let focusObserver {
+                NotificationCenter.default.removeObserver(focusObserver)
+            }
+        }
+
+        private func reclaimFirstResponder() {
+            guard let textView, let window = textView.window else { return }
+            window.makeFirstResponder(textView)
         }
 
         func install(textView: NSTextView, storage: NSTextStorage) {

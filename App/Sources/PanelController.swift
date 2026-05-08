@@ -6,6 +6,11 @@ extension Notification.Name {
     /// `PanelRootView` listens for this to reset transient overlay state, since
     /// the SwiftUI hosting view persists across hide/show cycles.
     static let marcdownPanelDidHide = Notification.Name("MarcdownPanelDidHide")
+
+    /// Posted by `PanelRootView` after any overlay (palette, switcher) is
+    /// dismissed. The editor listens to reclaim first responder so the user can
+    /// resume typing without an extra click. Mirrors `marcdownPanelDidHide`.
+    static let marcdownEditorShouldFocus = Notification.Name("MarcdownEditorShouldFocus")
 }
 
 /// Hardcoded size constraints for the floating editor panel.
@@ -42,6 +47,36 @@ func resolvePanelOrigin(saved: CGPoint?, screenVisibleFrames: [CGRect]) -> CGPoi
         return saved
     }
     return nil
+}
+
+/// What the global hotkey should do, based on the panel's current state.
+/// Replaces the old `panel.isVisible`-based toggle so a user who tabs to
+/// another app can hotkey back without losing the panel they were drafting in.
+enum HotkeyAction: Equatable {
+    case show
+    case bringToKey
+    case hide
+}
+
+/// Pure helper: maps the panel's `(isVisible, isKey)` pair to the action the
+/// hotkey should take. Kept top-level so it can be unit-tested without an
+/// AppKit window — same pattern as `computeMaxWidth` and `resolvePanelOrigin`.
+///
+/// AppKit cannot produce a keyed-but-invisible window, but we still map that
+/// impossible state to `.show` defensively rather than crashing or no-oping.
+func nextHotkeyAction(isVisible: Bool, isKey: Bool) -> HotkeyAction {
+    switch (isVisible, isKey) {
+    case (false, _): return .show
+    case (true, false): return .bringToKey
+    case (true, true): return .hide
+    }
+}
+
+/// Pure helper: should the footer's "esc to close" hint be visible right now?
+/// The hint is only honest when ESC actually does what it says — panel is key
+/// and no overlay owns ESC semantics. Top-level for unit-testability.
+func shouldShowEscHint(activeOverlay: ActiveOverlay, panelIsKey: Bool) -> Bool {
+    panelIsKey && activeOverlay == .none
 }
 
 /// Owns the lifecycle of the floating editor panel.
@@ -93,11 +128,27 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func toggle() {
-        if panel.isVisible {
-            hide(restoreFocus: true)
-        } else {
+        switch nextHotkeyAction(isVisible: panel.isVisible, isKey: panel.isKeyWindow) {
+        case .show:
             show()
+        case .bringToKey:
+            bringToKey()
+        case .hide:
+            hide(restoreFocus: true)
         }
+    }
+
+    /// Re-keys an already-visible panel without re-running `show()`'s placement
+    /// logic. Refreshes `previouslyActiveApp` so the next ESC restores whatever
+    /// app the user was just in (e.g. they tabbed to Safari, then hotkeyed
+    /// back; ESC should drop them back to Safari).
+    private func bringToKey() {
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        if frontmost != .current {
+            previouslyActiveApp = frontmost
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
     }
 
     func show() {
@@ -117,12 +168,8 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     /// Hides the panel. When `restoreFocus` is true, brings the previously
-    /// active app back to the front; when false, leaves focus alone (the user
-    /// just clicked another app, so macOS has already moved focus there).
+    /// active app back to the front; when false, leaves focus alone.
     func hide(restoreFocus: Bool) {
-        // Capture and clear up-front: ordering out triggers windowDidResignKey
-        // re-entrantly, which calls hide(restoreFocus: false). If we cleared
-        // after orderOut, that re-entry would observe a stale value.
         let target = restoreFocus ? previouslyActiveApp : nil
         previouslyActiveApp = nil
         panel.orderOut(nil)
@@ -179,12 +226,10 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     // MARK: NSWindowDelegate
 
-    nonisolated func windowDidResignKey(_ notification: Notification) {
-        MainActor.assumeIsolated {
-            // The user already moved to another app — don't yank them back.
-            self.hide(restoreFocus: false)
-        }
-    }
+    // `windowDidResignKey` intentionally omitted — Marcdown is a persistent
+    // capture surface, not a launcher. Click-away must leave the panel
+    // visible so the user can tab to Safari, grab a URL, and tab back to
+    // keep drafting. Dismissal happens only via ESC or hotkey toggle.
 
     nonisolated func windowDidMove(_ notification: Notification) {
         MainActor.assumeIsolated { self.saveOrigin() }

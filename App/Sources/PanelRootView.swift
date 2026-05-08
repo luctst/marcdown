@@ -142,6 +142,16 @@ struct PanelRootView: View {
     @State private var activeOverlay: ActiveOverlay = .none
     @State private var tooltips = TooltipModel()
     @State private var toasts = ToastModel()
+    /// Lifted out of `CommandPalette` so the AppKit `EscapeKeyMonitor` can pop
+    /// the sub-mode before consuming ESC. The local NSEvent monitor runs at
+    /// app-level dispatch and beats SwiftUI's `.onKeyPress` to the keystroke;
+    /// without this binding the monitor would collapse the entire palette
+    /// instead of popping back to root.
+    @State private var paletteSubMode: PaletteSubMode = .root
+    /// Tracks whether the panel is the key window so the footer's "esc to
+    /// close" hint can hide when the user clicks another app. Driven by
+    /// AppKit notifications since SwiftUI has no first-class binding for it.
+    @State private var panelIsKey: Bool = false
 
     private var currentTitle: String {
         guard let editor = store.editor else { return "Marcdown" }
@@ -171,15 +181,32 @@ struct PanelRootView: View {
                 .allowsHitTesting(false)
         }
         .background(
+            // The monitor runs ahead of SwiftUI's `.onKeyPress`, so it owns
+            // the "pop palette sub-mode before dismissing" decision. If the
+            // palette is in a sub-mode, pop back to root; otherwise dismiss.
             EscapeKeyMonitor(isActive: activeOverlay != .none) {
+                if activeOverlay == .palette,
+                    let popped = paletteSubModeAfterEscape(current: paletteSubMode),
+                    popped != paletteSubMode
+                {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        paletteSubMode = popped
+                    }
+                    return
+                }
                 dismissActiveOverlay()
             }
         )
         .task {
             await store.bootstrap()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            guard notification.object as? MarcdownPanel != nil else { return }
+            panelIsKey = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { notification in
             guard notification.object as? MarcdownPanel != nil else { return }
+            panelIsKey = false
             tooltips.hideAll()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMoveNotification)) { notification in
@@ -194,6 +221,7 @@ struct PanelRootView: View {
             // state would otherwise survive a panel toggle. Reset on hide so
             // the panel always reopens to a clean editor view.
             activeOverlay = .none
+            paletteSubMode = .root
         }
     }
 
@@ -219,7 +247,10 @@ struct PanelRootView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(.regularMaterial)
                 }
-                FooterBar(characterCount: editor.text.count)
+                FooterBar(
+                    characterCount: editor.text.count,
+                    showEscHint: shouldShowEscHint(activeOverlay: activeOverlay, panelIsKey: panelIsKey)
+                )
             }
         } else {
             VStack(spacing: 12) {
@@ -285,14 +316,14 @@ struct PanelRootView: View {
         ZStack {
             Color.black.opacity(0.18)
                 .ignoresSafeArea()
-                .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { activeOverlay = .none } }
+                .onTapGesture { dismissActiveOverlay() }
             QuickSwitcher(
                 notes: store.notes,
                 onOpen: { url in
                     store.open(url)
-                    activeOverlay = .none
+                    dismissActiveOverlay()
                 },
-                onDismiss: { activeOverlay = .none },
+                onDismiss: { dismissActiveOverlay() },
                 currentNote: store.currentNote,
                 isBootstrapping: store.isBootstrapping
             )
@@ -306,12 +337,13 @@ struct PanelRootView: View {
         ZStack {
             Color.black.opacity(0.18)
                 .ignoresSafeArea()
-                .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { activeOverlay = .none } }
+                .onTapGesture { dismissActiveOverlay() }
             CommandPalette(
                 actions: paletteActions,
-                onDismiss: { activeOverlay = .none },
+                subMode: $paletteSubMode,
+                onDismiss: { dismissActiveOverlay() },
                 onExport: { format in
-                    activeOverlay = .none
+                    dismissActiveOverlay()
                     Task { @MainActor in
                         guard let editorText = store.editor?.text else { return }
                         let suggested = Exporter.suggestedName(
@@ -349,7 +381,18 @@ struct PanelRootView: View {
 
     private var paletteActions: [PaletteAction] {
         makePaletteActions(
-            setOverlay: { activeOverlay = $0 },
+            // Route `.none` transitions through `dismissActiveOverlay` so leaf
+            // actions (New Note, Find, Export…) re-focus the editor on the
+            // same path as ESC and scrim-tap. Non-`.none` transitions (palette
+            // → switcher) keep the direct mutation since the next overlay
+            // claims focus on `.onAppear`.
+            setOverlay: { next in
+                if next == .none {
+                    dismissActiveOverlay()
+                } else {
+                    activeOverlay = next
+                }
+            },
             newNote: { Task { await store.newNote() } },
             triggerFind: { triggerFind() },
             duplicate: { Task { await store.duplicateCurrent() } },
@@ -375,6 +418,13 @@ struct PanelRootView: View {
 
     private func dismissActiveOverlay() {
         withAnimation(.easeOut(duration: 0.15)) { activeOverlay = .none }
+        // Reset sub-mode so the palette reopens at root, and re-focus the
+        // editor's NSTextView. Mirrors the `.marcdownPanelDidHide` pattern —
+        // the SwiftUI hosting view persists, so first-responder must be
+        // claimed back explicitly. Posted after the state mutation is queued
+        // so any overlay teardown lands first in the runloop.
+        paletteSubMode = .root
+        NotificationCenter.default.post(name: .marcdownEditorShouldFocus, object: nil)
     }
 
     private func triggerFind() {
