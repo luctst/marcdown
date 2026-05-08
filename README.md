@@ -12,12 +12,12 @@ A background-only macOS markdown editor. Floating panel, global hotkey, plain `.
 
 ## Why this exists
 
-Raycast Notes was convenient but proprietary. Marcdown gives you:
+Marcdown is built for markdown writers who want a distraction-free, keyboard-driven note editor that respects their data.
 
-- **Plain text, local files** — notes live in `~/marcdown/` under your control; sync via iCloud Drive, Dropbox, Syncthing, or just `git`.
+- **Plain text, local files** — notes live in `~/marcdown/` under your control; sync via iCloud Drive, Dropbox, Syncthing, or just `git`. No lock-in.
 - **Live markdown rendering** — as you type `# Heading` or `**bold**`, the text renders in place (WYSIWYG-ish; no formatting hotkeys needed).
-- **Markdown tables** — Raycast Notes doesn't render them; Marcdown does.
-- **Native macOS** — SwiftUI + AppKit; no Electron, no browser overhead. Fast, low-footprint.
+- **Markdown tables** — full table support, not just lists and basic text.
+- **Native macOS** — Swift 6, AppKit + SwiftUI; no Electron, no browser overhead. Fast, low-footprint.
 - **Keyboard-first UX** — global hotkey, panel overlay, all controls accessible via chords. No mouse required.
 
 ## Status
