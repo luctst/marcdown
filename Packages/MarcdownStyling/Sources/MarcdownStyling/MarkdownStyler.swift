@@ -45,11 +45,12 @@ public final class MarkdownStyler {
         // Reset to a clean baseline before walking the AST so stale attributes
         // from a previous pass don't leak through.
         storage.setAttributes(baseAttributes, range: fullRange)
-        // `setAttributes` already clears `.marcdownConcealed`, but be explicit
-        // — if a future change adds another reset path that uses `addAttributes`
-        // instead, we want the conceal flag explicitly stripped here.
+        // `setAttributes` already clears `.marcdownConcealed` and
+        // `.marcdownCheckbox`, but be explicit so that any future reset path
+        // that switches to `addAttributes` still strips them.
         if fullRange.length > 0 {
             storage.removeAttribute(.marcdownConcealed, range: fullRange)
+            storage.removeAttribute(.marcdownCheckbox, range: fullRange)
         }
 
         var walker = StyleWalker(
@@ -59,7 +60,131 @@ public final class MarkdownStyler {
             index: index
         )
         walker.visit(document)
+
+        // Single-source-of-truth pass for checkbox shape detection. Runs
+        // after the AST walk so any attributes the AST tried to set on
+        // task-list bullets are overwritten here.
+        applyCheckboxScannerPass(storage: storage, source: source)
+
         storage.endEditing()
+    }
+
+    /// Walks `source` line-by-line, classifying each via `CheckboxLineScanner`,
+    /// and tags `.marcdownConcealed` / `.marcdownCheckbox` accordingly. This
+    /// is the only writer of `.marcdownCheckbox` in the entire pipeline.
+    private func applyCheckboxScannerPass(storage: NSTextStorage, source: String) {
+        let units = Array(source.utf16)
+        let length = units.count
+        var lineStart = 0
+        while lineStart <= length {
+            // Find lineEnd (the next `\n` or end of buffer).
+            var lineEnd = lineStart
+            while lineEnd < length, units[lineEnd] != 0x0A {
+                lineEnd += 1
+            }
+
+            let lineLength = lineEnd - lineStart
+            if lineLength > 0 {
+                let lineSlice = Array(units[lineStart..<lineEnd])
+                let line = lineSlice.withUnsafeBufferPointer {
+                    String(utf16CodeUnits: $0.baseAddress!, count: $0.count)
+                }
+                applyCheckboxAttributes(
+                    for: CheckboxLineScanner.scan(line: line),
+                    storage: storage,
+                    lineStart: lineStart,
+                    lineLength: lineLength
+                )
+            }
+
+            // Advance past the `\n` (or stop if past end).
+            if lineEnd >= length { break }
+            lineStart = lineEnd + 1
+        }
+    }
+
+    private func applyCheckboxAttributes(
+        for shape: CheckboxLineShape,
+        storage: NSTextStorage,
+        lineStart: Int,
+        lineLength: Int
+    ) {
+        switch shape {
+        case .none:
+            return
+        case .partial(let indentLength, let concealLength):
+            guard concealLength > 0 else { return }
+            let location = lineStart + indentLength
+            let range = NSRange(location: location, length: concealLength)
+            applyConceal(storage: storage, range: range)
+            applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+        case .complete(let indentLength, let bracketLocation, let state):
+            // Conceal "- " (bullet + space) at start.
+            applyConceal(
+                storage: storage,
+                range: NSRange(location: lineStart + indentLength, length: 2)
+            )
+            // Conceal `[` (zero advance — fully suppressed).
+            applyConceal(
+                storage: storage,
+                range: NSRange(location: lineStart + bracketLocation, length: 1)
+            )
+            // Middle char (the space / x / X): explicitly NOT concealed, but
+            // we hide its glyph by painting it clear so the icon painter has
+            // a stable advance to anchor on. `.marcdownConcealed` removed
+            // defensively in case a previous pass set it.
+            let middleRange = NSRange(location: lineStart + bracketLocation + 1, length: 1)
+            storage.removeAttribute(.marcdownConcealed, range: middleRange)
+            storage.addAttribute(.foregroundColor, value: NSColor.clear, range: middleRange)
+
+            // Close bracket `]`: NOT concealed — rendered `.clear` instead so
+            // it contributes ~1 char of advance (visual breathing room
+            // between the icon and the trailing cursor) without showing as a
+            // glyph.
+            let closeRange = NSRange(location: lineStart + bracketLocation + 2, length: 1)
+            storage.removeAttribute(.marcdownConcealed, range: closeRange)
+            storage.addAttribute(.foregroundColor, value: NSColor.clear, range: closeRange)
+
+            // Tag the 3-char `[X]` range with the checkbox state.
+            let markerRange = NSRange(location: lineStart + bracketLocation, length: 3)
+            storage.addAttribute(.marcdownCheckbox, value: state, range: markerRange)
+
+            // Force a monospaced font on the 3-char marker range so the
+            // middle char's advance is identical for `' '`, `'x'`, and `'X'`.
+            // Without this the proportional system font gives different
+            // advances per state, shifting the painted icon on toggle.
+            let markerFont = NSFont.monospacedSystemFont(
+                ofSize: baseFont.pointSize,
+                weight: .regular
+            )
+            storage.addAttribute(.font, value: markerFont, range: markerRange)
+
+            applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+        }
+    }
+
+    private func applyConceal(storage: NSTextStorage, range: NSRange) {
+        let storageLength = storage.length
+        let upper = min(range.location + range.length, storageLength)
+        let lower = min(range.location, storageLength)
+        guard upper > lower else { return }
+        let clamped = NSRange(location: lower, length: upper - lower)
+        storage.addAttribute(.marcdownConcealed, value: true, range: clamped)
+    }
+
+    private func applyParagraphSpacing(
+        storage: NSTextStorage,
+        lineStart: Int,
+        lineLength: Int
+    ) {
+        let storageLength = storage.length
+        let upper = min(lineStart + lineLength, storageLength)
+        let lower = min(lineStart, storageLength)
+        guard upper > lower else { return }
+        let range = NSRange(location: lower, length: upper - lower)
+        let style = NSMutableParagraphStyle()
+        style.paragraphSpacingBefore = 4
+        storage.addAttribute(.paragraphStyle, value: style, range: range)
     }
 
     private var baseAttributes: [NSAttributedString.Key: Any] {

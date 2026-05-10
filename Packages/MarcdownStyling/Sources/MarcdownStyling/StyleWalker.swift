@@ -139,10 +139,14 @@ struct StyleWalker: @preconcurrency MarkupWalker {
     }
 
     mutating func visitListItem(_ listItem: ListItem) {
-        dimListMarker(for: listItem)
-
-        if let checkbox = listItem.checkbox {
-            styleCheckbox(for: listItem, checkbox: checkbox)
+        // Plain unordered / ordered list markers get their dim treatment here.
+        // Task-list bullets and `[ ]` / `[x]` markers are handled exclusively
+        // by `CheckboxLineScanner` (run from `MarkdownStyler.restyle` after
+        // the AST walk). Keeping the AST out of checkbox concealment is
+        // deliberate — v1's "AST + regex" seam was the source of the
+        // restyle bugs we're trying to retire.
+        if listItem.checkbox == nil {
+            dimListMarker(for: listItem)
         }
         descendInto(listItem)
     }
@@ -335,26 +339,6 @@ struct StyleWalker: @preconcurrency MarkupWalker {
 
         return line.utf16.distance(
             from: line.utf16.startIndex, to: cursor.samePosition(in: line.utf16) ?? line.utf16.endIndex)
-    }
-
-    private func styleCheckbox(for listItem: ListItem, checkbox: Checkbox) {
-        guard let itemRange = index.nsRange(listItem.range), itemRange.length > 0 else { return }
-        let storageString = storage.string as NSString
-        let substring = storageString.substring(with: itemRange)
-
-        // Find the `[` after the list marker.
-        guard let openBracket = substring.firstIndex(of: "[") else { return }
-        let offsetToOpen = substring.utf16.distance(
-            from: substring.utf16.startIndex,
-            to: openBracket.samePosition(in: substring.utf16) ?? substring.utf16.endIndex
-        )
-        // `[x]` or `[ ]` — three UTF-16 units.
-        let checkboxLocation = itemRange.location + offsetToOpen
-        let checkboxLength = 3
-        guard checkboxLocation + checkboxLength <= storage.length else { return }
-        let checkboxRange = NSRange(location: checkboxLocation, length: checkboxLength)
-        let color: NSColor = checkbox == .checked ? theme.accent : theme.dim
-        addAttributes([.foregroundColor: color], range: checkboxRange)
     }
 
     private func addAttributes(_ attrs: [NSAttributedString.Key: Any], range: NSRange) {
