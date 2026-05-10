@@ -58,7 +58,7 @@ public enum BackspaceContinuation {
             return atomicDelete(lineStart: lineStart, lineEnd: lineEnd)
 
         case .complete(_, let bracketLocation, _):
-            let bodyStart = bracketLocation + 4 // past "[X] "
+            let bodyStart = bracketLocation + 4  // past "[X] "
             let bodyLength = lineLength - bodyStart
             // Atomic delete only when cursor is at the end of an empty marker.
             guard

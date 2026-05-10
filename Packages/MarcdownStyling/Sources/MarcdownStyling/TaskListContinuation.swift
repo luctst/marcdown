@@ -55,7 +55,7 @@ public enum TaskListContinuation {
         case .partial:
             return .noOp
         case .complete(let indentLength, let bracketLocation, _):
-            let bodyStart = bracketLocation + 4 // past "[X] "
+            let bodyStart = bracketLocation + 4  // past "[X] "
             let lineLength = lineEnd - lineStart
             let bodyLength = lineLength - bodyStart
 

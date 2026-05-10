@@ -48,9 +48,9 @@ public enum CheckboxLineScanner {
         }
         let indentLength = i
 
-        // After indent, require `-`.
+        // After indent, require `-` (0x2D).
         guard i < length else { return .none }
-        guard units[i] == 0x2D /* '-' */ else { return .none }
+        guard units[i] == 0x2D else { return .none }
         i += 1
 
         // `- ` (dash with no following content).
@@ -69,8 +69,8 @@ public enum CheckboxLineScanner {
             return .partial(indentLength: indentLength, concealLength: 2)
         }
 
-        // The next char after `- ` MUST be `[` (otherwise plain unordered list).
-        guard units[i] == 0x5B /* '[' */ else { return .none }
+        // The next char after `- ` MUST be `[` (0x5B) — otherwise plain unordered list.
+        guard units[i] == 0x5B else { return .none }
         let bracketLocation = i
         i += 1
 
@@ -85,17 +85,17 @@ public enum CheckboxLineScanner {
 
         let inner = units[i]
 
-        // `- []` — empty brackets, treat as partial.
-        if inner == 0x5D /* ']' */ {
+        // `- []` — empty brackets (`]` is 0x5D), treat as partial.
+        if inner == 0x5D {
             return .partial(
                 indentLength: indentLength,
                 concealLength: bracketLocation + 2 - indentLength
             )
         }
 
-        // Inner must be space, 'x', or 'X' to potentially be complete.
+        // Inner must be space (0x20), 'x' (0x78), or 'X' (0x58) to potentially be complete.
         let isUnchecked = (inner == 0x20)
-        let isChecked = (inner == 0x78 /* 'x' */ || inner == 0x58 /* 'X' */)
+        let isChecked = (inner == 0x78 || inner == 0x58)
 
         guard isUnchecked || isChecked else {
             return .none
@@ -110,7 +110,8 @@ public enum CheckboxLineScanner {
             )
         }
 
-        guard units[i + 1] == 0x5D /* ']' */ else {
+        // `]` is 0x5D.
+        guard units[i + 1] == 0x5D else {
             // Something after the inner char that isn't `]`. Not a checkbox.
             return .none
         }

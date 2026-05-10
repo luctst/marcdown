@@ -289,9 +289,11 @@ public struct NoteEditorView: NSViewRepresentable {
                 }
             }
 
-            guard let expansion = CheckboxAutoExpansion.expansionOnTypingCloseBracket(
-                beforeCursorOnLine: prefix
-            ) else { return true }
+            guard
+                let expansion = CheckboxAutoExpansion.expansionOnTypingCloseBracket(
+                    beforeCursorOnLine: prefix
+                )
+            else { return true }
 
             let prefixRange = NSRange(location: lineStart, length: cursor - lineStart)
             guard textView.shouldChangeText(in: prefixRange, replacementString: expansion) else {
@@ -363,7 +365,8 @@ private final class FocusOnAttachTextView: NSTextView {
     override func resetCursorRects() {
         super.resetCursorRects()
         guard let layoutManager,
-              let storage = textStorage else { return }
+            let storage = textStorage
+        else { return }
         let fullRange = NSRange(location: 0, length: storage.length)
         storage.enumerateAttribute(.marcdownCheckbox, in: fullRange, options: []) { value, charRange, _ in
             guard value != nil, charRange.length >= 3 else { return }

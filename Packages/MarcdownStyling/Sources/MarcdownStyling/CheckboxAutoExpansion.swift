@@ -20,8 +20,8 @@ public enum CheckboxAutoExpansion {
             i += 1
         }
 
-        // Need exactly one `[` after the indent and nothing else.
-        guard i < length, units[i] == 0x5B /* '[' */ else { return nil }
+        // Need exactly one `[` (0x5B) after the indent and nothing else.
+        guard i < length, units[i] == 0x5B else { return nil }
         guard i + 1 == length else { return nil }
 
         // Slice the indent back out preserving exact bytes (mixed spaces/tabs).

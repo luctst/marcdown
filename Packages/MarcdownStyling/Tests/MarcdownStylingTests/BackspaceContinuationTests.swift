@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import MarcdownStyling
 
 @Suite("Backspace continuation")
@@ -10,21 +11,21 @@ struct BackspaceContinuationTests {
     @Test func emptyBufferIsStandard() {
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "", cursorOffset: 0)
-            == .standard
+                == .standard
         )
     }
 
     @Test func plainTextIsStandard() {
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "hello", cursorOffset: 5)
-            == .standard
+                == .standard
         )
     }
 
     @Test func cursorBeforeMarkerIsStandard() {
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "- [ ] foo", cursorOffset: 0)
-            == .standard
+                == .standard
         )
     }
 
@@ -32,7 +33,7 @@ struct BackspaceContinuationTests {
         // Mid-marker BS is normal AppKit behavior.
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "- [ ] foo", cursorOffset: 3)
-            == .standard
+                == .standard
         )
     }
 
@@ -40,7 +41,7 @@ struct BackspaceContinuationTests {
         // Cursor at end of body — AppKit deletes the trailing 'o' normally.
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "- [ ] foo", cursorOffset: 9)
-            == .standard
+                == .standard
         )
     }
 
@@ -48,21 +49,21 @@ struct BackspaceContinuationTests {
         // Cursor in middle of "hello" body — normal BS deletes 'l'.
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "- [ ] hello", cursorOffset: 8)
-            == .standard
+                == .standard
         )
     }
 
     @Test func cursorPastEndOfBufferIsStandard() {
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "- [ ] ", cursorOffset: 100)
-            == .standard
+                == .standard
         )
     }
 
     @Test func negativeCursorIsStandard() {
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "- [ ] ", cursorOffset: -1)
-            == .standard
+                == .standard
         )
     }
 
@@ -72,10 +73,10 @@ struct BackspaceContinuationTests {
         // No preceding `\n`; remove entire line.
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "- [ ] ", cursorOffset: 6)
-            == .replace(
-                range: NSRange(location: 0, length: 6),
-                cursorOffsetInBuffer: 0
-            )
+                == .replace(
+                    range: NSRange(location: 0, length: 6),
+                    cursorOffsetInBuffer: 0
+                )
         )
     }
 
@@ -83,20 +84,20 @@ struct BackspaceContinuationTests {
         // Eats preceding `\n` at offset 9.
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "- [ ] foo\n- [ ] ", cursorOffset: 16)
-            == .replace(
-                range: NSRange(location: 9, length: 7),
-                cursorOffsetInBuffer: 9
-            )
+                == .replace(
+                    range: NSRange(location: 9, length: 7),
+                    cursorOffsetInBuffer: 9
+                )
         )
     }
 
     @Test func cursorAtEndOfMarkerOnEmptyTaskAfterPlainTextEatsPrecedingNewline() {
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "hello\n- [ ] ", cursorOffset: 12)
-            == .replace(
-                range: NSRange(location: 5, length: 7),
-                cursorOffsetInBuffer: 5
-            )
+                == .replace(
+                    range: NSRange(location: 5, length: 7),
+                    cursorOffsetInBuffer: 5
+                )
         )
     }
 
@@ -104,10 +105,10 @@ struct BackspaceContinuationTests {
         // Delete `\n- [ ] ` (length 7); trailing `\nworld` stays.
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "hello\n- [ ] \nworld", cursorOffset: 12)
-            == .replace(
-                range: NSRange(location: 5, length: 7),
-                cursorOffsetInBuffer: 5
-            )
+                == .replace(
+                    range: NSRange(location: 5, length: 7),
+                    cursorOffsetInBuffer: 5
+                )
         )
     }
 
@@ -117,10 +118,10 @@ struct BackspaceContinuationTests {
         // Partial shape "- [", no body, atomic delete.
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "- [", cursorOffset: 3)
-            == .replace(
-                range: NSRange(location: 0, length: 3),
-                cursorOffsetInBuffer: 0
-            )
+                == .replace(
+                    range: NSRange(location: 0, length: 3),
+                    cursorOffsetInBuffer: 0
+                )
         )
     }
 
@@ -128,10 +129,10 @@ struct BackspaceContinuationTests {
         // Delete `\n- [` (length 4).
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "hello\n- [", cursorOffset: 9)
-            == .replace(
-                range: NSRange(location: 5, length: 4),
-                cursorOffsetInBuffer: 5
-            )
+                == .replace(
+                    range: NSRange(location: 5, length: 4),
+                    cursorOffsetInBuffer: 5
+                )
         )
     }
 
@@ -140,20 +141,20 @@ struct BackspaceContinuationTests {
     @Test func cursorAtEndOfMarkerOnEmptyCheckedTaskDeletes() {
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "- [x] ", cursorOffset: 6)
-            == .replace(
-                range: NSRange(location: 0, length: 6),
-                cursorOffsetInBuffer: 0
-            )
+                == .replace(
+                    range: NSRange(location: 0, length: 6),
+                    cursorOffsetInBuffer: 0
+                )
         )
     }
 
     @Test func cursorAtEndOfMarkerOnEmptyIndentedTaskDeletesIncludingIndent() {
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "  - [ ] ", cursorOffset: 8)
-            == .replace(
-                range: NSRange(location: 0, length: 8),
-                cursorOffsetInBuffer: 0
-            )
+                == .replace(
+                    range: NSRange(location: 0, length: 8),
+                    cursorOffsetInBuffer: 0
+                )
         )
     }
 
@@ -161,10 +162,10 @@ struct BackspaceContinuationTests {
         // Delete `\n` + indent + marker (length 9).
         #expect(
             BackspaceContinuation.deleteOutcome(buffer: "hello\n  - [ ] ", cursorOffset: 14)
-            == .replace(
-                range: NSRange(location: 5, length: 9),
-                cursorOffsetInBuffer: 5
-            )
+                == .replace(
+                    range: NSRange(location: 5, length: 9),
+                    cursorOffsetInBuffer: 5
+                )
         )
     }
 }

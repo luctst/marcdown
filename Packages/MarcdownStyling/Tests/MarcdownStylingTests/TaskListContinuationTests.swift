@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import MarcdownStyling
 
 @Suite("TaskListContinuation")
@@ -10,14 +11,14 @@ struct TaskListContinuationTests {
     @Test func emptyBufferIsNoOp() {
         #expect(
             TaskListContinuation.enterOutcome(buffer: "", cursorOffset: 0)
-            == .noOp
+                == .noOp
         )
     }
 
     @Test func plainTextIsNoOp() {
         #expect(
             TaskListContinuation.enterOutcome(buffer: "hello", cursorOffset: 5)
-            == .noOp
+                == .noOp
         )
     }
 
@@ -25,7 +26,7 @@ struct TaskListContinuationTests {
         // `"hello\n"` with cursor on the blank trailing paragraph — no task above.
         #expect(
             TaskListContinuation.enterOutcome(buffer: "hello\n", cursorOffset: 6)
-            == .noOp
+                == .noOp
         )
     }
 
@@ -33,7 +34,7 @@ struct TaskListContinuationTests {
         // Cursor before the marker — Enter falls through to AppKit.
         #expect(
             TaskListContinuation.enterOutcome(buffer: "- [ ] foo", cursorOffset: 0)
-            == .noOp
+                == .noOp
         )
     }
 
@@ -41,7 +42,7 @@ struct TaskListContinuationTests {
         // Cursor inside the marker brackets — fall through.
         #expect(
             TaskListContinuation.enterOutcome(buffer: "- [ ] foo", cursorOffset: 3)
-            == .noOp
+                == .noOp
         )
     }
 
@@ -50,7 +51,7 @@ struct TaskListContinuationTests {
         // to AppKit. This locks in the `.partial` branch in enterOutcome.
         #expect(
             TaskListContinuation.enterOutcome(buffer: "- [", cursorOffset: 3)
-            == .noOp
+                == .noOp
         )
     }
 
@@ -60,11 +61,11 @@ struct TaskListContinuationTests {
         let buffer = "- [ ] foo"
         #expect(
             TaskListContinuation.enterOutcome(buffer: buffer, cursorOffset: 9)
-            == .replace(
-                range: NSRange(location: 9, length: 0),
-                replacement: "\n- [ ] ",
-                cursorOffsetInBuffer: 16
-            )
+                == .replace(
+                    range: NSRange(location: 9, length: 0),
+                    replacement: "\n- [ ] ",
+                    cursorOffsetInBuffer: 16
+                )
         )
     }
 
@@ -72,11 +73,11 @@ struct TaskListContinuationTests {
         let buffer = "- [x] done"
         #expect(
             TaskListContinuation.enterOutcome(buffer: buffer, cursorOffset: 10)
-            == .replace(
-                range: NSRange(location: 10, length: 0),
-                replacement: "\n- [ ] ",
-                cursorOffsetInBuffer: 17
-            )
+                == .replace(
+                    range: NSRange(location: 10, length: 0),
+                    replacement: "\n- [ ] ",
+                    cursorOffsetInBuffer: 17
+                )
         )
     }
 
@@ -85,11 +86,11 @@ struct TaskListContinuationTests {
         let buffer = "- [ ] hello world"
         #expect(
             TaskListContinuation.enterOutcome(buffer: buffer, cursorOffset: 11)
-            == .replace(
-                range: NSRange(location: 11, length: 0),
-                replacement: "\n- [ ] ",
-                cursorOffsetInBuffer: 18
-            )
+                == .replace(
+                    range: NSRange(location: 11, length: 0),
+                    replacement: "\n- [ ] ",
+                    cursorOffsetInBuffer: 18
+                )
         )
     }
 
@@ -97,11 +98,11 @@ struct TaskListContinuationTests {
         let buffer = "  - [ ] foo"
         #expect(
             TaskListContinuation.enterOutcome(buffer: buffer, cursorOffset: 11)
-            == .replace(
-                range: NSRange(location: 11, length: 0),
-                replacement: "\n  - [ ] ",
-                cursorOffsetInBuffer: 20
-            )
+                == .replace(
+                    range: NSRange(location: 11, length: 0),
+                    replacement: "\n  - [ ] ",
+                    cursorOffsetInBuffer: 20
+                )
         )
     }
 
@@ -116,11 +117,11 @@ struct TaskListContinuationTests {
         let buffer = "- [ ] "
         #expect(
             TaskListContinuation.enterOutcome(buffer: buffer, cursorOffset: 6)
-            == .replace(
-                range: NSRange(location: 0, length: 6),
-                replacement: "",
-                cursorOffsetInBuffer: 0
-            )
+                == .replace(
+                    range: NSRange(location: 0, length: 6),
+                    replacement: "",
+                    cursorOffsetInBuffer: 0
+                )
         )
     }
 
@@ -128,11 +129,11 @@ struct TaskListContinuationTests {
         let buffer = "- [ ] foo\n- [ ] "
         #expect(
             TaskListContinuation.enterOutcome(buffer: buffer, cursorOffset: 16)
-            == .replace(
-                range: NSRange(location: 10, length: 6),
-                replacement: "",
-                cursorOffsetInBuffer: 10
-            )
+                == .replace(
+                    range: NSRange(location: 10, length: 6),
+                    replacement: "",
+                    cursorOffsetInBuffer: 10
+                )
         )
     }
 
@@ -140,11 +141,11 @@ struct TaskListContinuationTests {
         let buffer = "hello\n- [ ] "
         #expect(
             TaskListContinuation.enterOutcome(buffer: buffer, cursorOffset: 12)
-            == .replace(
-                range: NSRange(location: 6, length: 6),
-                replacement: "",
-                cursorOffsetInBuffer: 6
-            )
+                == .replace(
+                    range: NSRange(location: 6, length: 6),
+                    replacement: "",
+                    cursorOffsetInBuffer: 6
+                )
         )
     }
 
@@ -154,11 +155,11 @@ struct TaskListContinuationTests {
         let buffer = "hello\n- [ ] \nworld"
         #expect(
             TaskListContinuation.enterOutcome(buffer: buffer, cursorOffset: 12)
-            == .replace(
-                range: NSRange(location: 6, length: 6),
-                replacement: "",
-                cursorOffsetInBuffer: 6
-            )
+                == .replace(
+                    range: NSRange(location: 6, length: 6),
+                    replacement: "",
+                    cursorOffsetInBuffer: 6
+                )
         )
     }
 
@@ -166,11 +167,11 @@ struct TaskListContinuationTests {
         let buffer = "  - [ ] "
         #expect(
             TaskListContinuation.enterOutcome(buffer: buffer, cursorOffset: 8)
-            == .replace(
-                range: NSRange(location: 0, length: 8),
-                replacement: "",
-                cursorOffsetInBuffer: 0
-            )
+                == .replace(
+                    range: NSRange(location: 0, length: 8),
+                    replacement: "",
+                    cursorOffsetInBuffer: 0
+                )
         )
     }
 
@@ -187,7 +188,7 @@ struct TaskListContinuationTests {
         let buffer = "- [ ] foo\n"
         #expect(
             TaskListContinuation.enterOutcome(buffer: buffer, cursorOffset: 10)
-            == .noOp
+                == .noOp
         )
     }
 
@@ -195,7 +196,7 @@ struct TaskListContinuationTests {
         let buffer = "- [x] done\n"
         #expect(
             TaskListContinuation.enterOutcome(buffer: buffer, cursorOffset: 11)
-            == .noOp
+                == .noOp
         )
     }
 
@@ -203,7 +204,7 @@ struct TaskListContinuationTests {
         let buffer = "  - [ ] foo\n"
         #expect(
             TaskListContinuation.enterOutcome(buffer: buffer, cursorOffset: 12)
-            == .noOp
+                == .noOp
         )
     }
 }

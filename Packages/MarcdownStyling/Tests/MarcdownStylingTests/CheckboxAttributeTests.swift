@@ -27,7 +27,7 @@ struct CheckboxAttributeTests {
     // 1. Close bracket: `.clear` foreground, NOT concealed.
     @Test func closeBracketIsRenderedClearNotConcealed() {
         let storage = restyle("- [ ] foo")
-        let closeIndex = 4 // ']'
+        let closeIndex = 4  // ']'
         let color = storage.attribute(.foregroundColor, at: closeIndex, effectiveRange: nil) as? NSColor
         #expect(color == NSColor.clear)
         let concealed = storage.attribute(.marcdownConcealed, at: closeIndex, effectiveRange: nil) as? Bool
@@ -37,7 +37,7 @@ struct CheckboxAttributeTests {
     // 2. Middle char: `.clear`, not concealed.
     @Test func middleCharIsRenderedClearNotConcealed() {
         let storage = restyle("- [ ] foo")
-        let middleIndex = 3 // ' ' between brackets
+        let middleIndex = 3  // ' ' between brackets
         let color = storage.attribute(.foregroundColor, at: middleIndex, effectiveRange: nil) as? NSColor
         #expect(color == NSColor.clear)
         let concealed = storage.attribute(.marcdownConcealed, at: middleIndex, effectiveRange: nil) as? Bool
@@ -47,7 +47,7 @@ struct CheckboxAttributeTests {
     // 3. Open bracket: concealed.
     @Test func openBracketIsConcealed() {
         let storage = restyle("- [ ] foo")
-        let openIndex = 2 // '['
+        let openIndex = 2  // '['
         let concealed = storage.attribute(.marcdownConcealed, at: openIndex, effectiveRange: nil) as? Bool
         #expect(concealed == true)
     }
@@ -76,8 +76,9 @@ struct CheckboxAttributeTests {
         for index in 2...4 {
             let font = storage.attribute(.font, at: index, effectiveRange: nil) as? NSFont
             #expect(font != nil, "expected font at position \(index)")
-            #expect(font?.fontDescriptor.symbolicTraits.contains(.monoSpace) == true,
-                    "expected monospace at position \(index)")
+            #expect(
+                font?.fontDescriptor.symbolicTraits.contains(.monoSpace) == true,
+                "expected monospace at position \(index)")
         }
     }
 
@@ -87,8 +88,9 @@ struct CheckboxAttributeTests {
         for index in 2...4 {
             let font = storage.attribute(.font, at: index, effectiveRange: nil) as? NSFont
             #expect(font != nil, "expected font at position \(index)")
-            #expect(font?.fontDescriptor.symbolicTraits.contains(.monoSpace) == true,
-                    "expected monospace at position \(index)")
+            #expect(
+                font?.fontDescriptor.symbolicTraits.contains(.monoSpace) == true,
+                "expected monospace at position \(index)")
         }
     }
 

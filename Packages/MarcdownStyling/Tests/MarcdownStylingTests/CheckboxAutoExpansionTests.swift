@@ -1,4 +1,5 @@
 import Testing
+
 @testable import MarcdownStyling
 
 @Suite("CheckboxAutoExpansion")
@@ -9,28 +10,28 @@ struct CheckboxAutoExpansionTests {
     @Test func emptyLinePlusBracketExpands() {
         #expect(
             CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "[")
-            == "- [ ] "
+                == "- [ ] "
         )
     }
 
     @Test func spaceIndentPreserved() {
         #expect(
             CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "  [")
-            == "  - [ ] "
+                == "  - [ ] "
         )
     }
 
     @Test func tabIndentPreserved() {
         #expect(
             CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "\t[")
-            == "\t- [ ] "
+                == "\t- [ ] "
         )
     }
 
     @Test func mixedIndentPreserved() {
         #expect(
             CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: " \t [")
-            == " \t - [ ] "
+                == " \t - [ ] "
         )
     }
 
@@ -39,21 +40,21 @@ struct CheckboxAutoExpansionTests {
     @Test func noBracketReturnsNil() {
         #expect(
             CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "")
-            == nil
+                == nil
         )
     }
 
     @Test func contentBeforeBracketReturnsNil() {
         #expect(
             CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "foo[")
-            == nil
+                == nil
         )
     }
 
     @Test func bracketWithExtraReturnsNil() {
         #expect(
             CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "[a")
-            == nil
+                == nil
         )
     }
 
@@ -61,7 +62,7 @@ struct CheckboxAutoExpansionTests {
         // Not the autoexpand trigger; this is a partial state handled by the scanner.
         #expect(
             CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "- [")
-            == nil
+                == nil
         )
     }
 }
