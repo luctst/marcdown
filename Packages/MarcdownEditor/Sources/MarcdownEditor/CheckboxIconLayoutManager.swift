@@ -1,27 +1,39 @@
 import AppKit
 import MarcdownStyling
 
-/// `NSLayoutManager` subclass that paints a rounded-square checkbox icon over
-/// the middle glyph of every `.marcdownCheckbox`-tagged 3-character `[X]`
-/// run. The styler conceals the `[` / `]` brackets and paints the middle
-/// glyph clear; this layout manager draws the icon in the middle glyph's
-/// advance box, anchored to the line fragment rect.
+/// `NSLayoutManager` subclass that paints overlay glyphs for two attribute
+/// runs the styler tags:
+///
+/// - `.marcdownCheckbox` — a rounded-square icon over the middle glyph of a
+///   3-character `[ ]` / `[x]` / `[X]` marker.
+/// - `.marcdownListMarker` — a filled bullet circle (for `.bullet`) or an
+///   accent-coloured `"<N>."` string (for `.ordered(number:)`) over the
+///   concealed/clear-painted source glyphs of a plain list marker.
 ///
 /// We deliberately avoid `boundingRect(forGlyphRange:)` for sizing or
-/// positioning. With `.null` glyphs flanking the visible middle char,
+/// positioning. With `.null` glyphs flanking the visible anchor char(s),
 /// `boundingRect` returns inconsistent geometry across line fragments. Using
 /// `lineFragmentRect(forGlyphAt:)` + `location(forGlyphAt:)` yields stable
 /// pixel anchors regardless of which glyphs are suppressed.
 final class CheckboxIconLayoutManager: NSLayoutManager {
-    /// Per-draw deduplication. `drawBackground(forGlyphRange:at:)` is invoked
-    /// once per dirty rect; if a marker straddles two dirty rects we'd
-    /// otherwise stroke the icon twice. AppKit drawing always happens on the
-    /// main thread, so the unchecked annotation is safe in practice.
+    /// Per-draw deduplication for checkbox icons. `drawBackground(forGlyphRange:at:)`
+    /// is invoked once per dirty rect; if a marker straddles two dirty rects
+    /// we'd otherwise stroke the icon twice. AppKit drawing always happens on
+    /// the main thread, so the unchecked annotation is safe in practice.
     private nonisolated(unsafe) var drawnRanges: Set<NSRange> = []
+
+    /// Per-draw deduplication for list markers. Kept separate from
+    /// `drawnRanges` so each sub-walk's bookkeeping is fully independent —
+    /// avoids any range-collision reasoning between checkbox (length 3) and
+    /// list-marker (length 2 for bullet, length ≥ 3 for ordered) keys. AppKit
+    /// drawing always happens on the main thread, so the unchecked annotation
+    /// is safe in practice.
+    private nonisolated(unsafe) var drawnListRanges: Set<NSRange> = []
 
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
         drawCheckboxIcons(forGlyphRange: glyphsToShow, at: origin)
+        drawListMarkers(forGlyphRange: glyphsToShow, at: origin)
     }
 
     private nonisolated func drawCheckboxIcons(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
@@ -101,5 +113,146 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
             accent.setFill()
             path.fill()
         }
+    }
+
+    // MARK: - List markers
+
+    private nonisolated func drawListMarkers(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        drawnListRanges.removeAll(keepingCapacity: true)
+
+        guard let storage = textStorage else { return }
+        guard glyphsToShow.length > 0 else { return }
+
+        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        guard charRange.length > 0 else { return }
+
+        let storageLength = storage.length
+        let upper = min(charRange.location + charRange.length, storageLength)
+        var probe = charRange.location
+        while probe < upper {
+            var effective = NSRange(location: 0, length: 0)
+            let value = storage.attribute(
+                .marcdownListMarker,
+                at: probe,
+                longestEffectiveRange: &effective,
+                in: NSRange(location: 0, length: storageLength)
+            )
+            if let kind = value as? MarcdownListMarkerKind {
+                let markerRange = effective
+                if !drawnListRanges.contains(markerRange) {
+                    drawnListRanges.insert(markerRange)
+                    switch kind {
+                    case .bullet:
+                        drawBullet(charRange: markerRange, origin: origin)
+                    case .ordered(let number):
+                        drawOrderedNumber(number: number, charRange: markerRange, origin: origin)
+                    }
+                }
+            }
+            probe = max(probe + 1, effective.location + effective.length)
+        }
+    }
+
+    /// Draws a filled circle in the first marker glyph's advance box. The
+    /// 2-char marker is `<dash><space>`; both glyphs are `.clear`-painted by
+    /// the styler with a forced monospaced font so each contributes a stable,
+    /// wide advance. We anchor on the first (dash) glyph and centre the
+    /// circle inside its advance box — the icon may bleed slightly past the
+    /// dash's right edge, but only into the (invisible) space glyph's slot,
+    /// never into the body text.
+    private nonisolated func drawBullet(charRange: NSRange, origin: NSPoint) {
+        guard charRange.length == 2 else { return }
+
+        let glyphRange = glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+        guard glyphRange.length >= 2 else { return }
+
+        // Anchor on the first marker glyph (the dash). Both glyphs are
+        // `.clear`-painted with a monospaced font, so glyph[1] - glyph[0]
+        // gives us the dash's true advance width.
+        let firstGlyph = glyphRange.location
+        var lineFragRange = NSRange(location: 0, length: 0)
+        let lineFragRect = lineFragmentRect(forGlyphAt: firstGlyph, effectiveRange: &lineFragRange)
+        let firstLocation = location(forGlyphAt: firstGlyph)
+
+        let secondLocation = location(forGlyphAt: firstGlyph + 1)
+        let advance = secondLocation.x - firstLocation.x
+
+        let maxSide: CGFloat = 13
+        let side = min(lineFragRect.height * 0.65, maxSide)
+        let advanceBoxWidth = advance > 0 ? advance : side
+
+        let glyphX = origin.x + lineFragRect.origin.x + firstLocation.x
+        let lineY = origin.y + lineFragRect.origin.y
+
+        let iconX = glyphX + (advanceBoxWidth - side) / 2
+        let iconY = lineY + (lineFragRect.height - side) / 2
+        let rect = NSRect(x: iconX, y: iconY, width: side, height: side)
+
+        let path = NSBezierPath(ovalIn: rect)
+        NSColor.controlAccentColor.setFill()
+        path.fill()
+    }
+
+    /// Draws `"<N>."` anchored at the first digit's baseline, at the overlay
+    /// font's natural width. The marker layout is `<digits>.<space>`; all
+    /// marker chars are `.clear`-painted with a forced monospaced font by the
+    /// styler so the marker footprint is wide enough to host the overlay
+    /// without bleeding into body text.
+    ///
+    /// We use `NSAttributedString`-style `.draw(at:)` rather than
+    /// `.draw(in:withAttributes:)` because the rect form top-aligns the text
+    /// inside the rect, causing the overlay to float above the body baseline.
+    /// `.draw(at:)` interprets the point as the top-left of the text rect, so
+    /// we convert the baseline-relative location returned by
+    /// `location(forGlyphAt:)` into a top-left point by subtracting the font's
+    /// ascender.
+    private nonisolated func drawOrderedNumber(number: Int, charRange: NSRange, origin: NSPoint) {
+        // markerLength = digits + 2 (`.` + space).
+        let digitCount = charRange.length - 2
+        guard digitCount > 0 else { return }
+
+        let glyphRange = glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+        guard glyphRange.length >= digitCount else { return }
+
+        let firstDigitGlyph = glyphRange.location
+        let lineFragRect = lineFragmentRect(forGlyphAt: firstDigitGlyph, effectiveRange: nil)
+        let firstDigitLocation = location(forGlyphAt: firstDigitGlyph)
+
+        // Match the body text's font size so the overlay sits on the same
+        // baseline rhythm as surrounding content. Using `.systemFontSize`
+        // would be wrong for an editor whose base font differs; query a
+        // representative glyph's font from the storage instead.
+        let fontSize = orderedOverlayFontSize(forGlyphAt: firstDigitGlyph)
+        let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+
+        // `location(forGlyphAt:)` returns a y at the BASELINE relative to the
+        // line fragment. `.draw(at:)` interprets its point as the TOP-LEFT of
+        // the text rect — convert by subtracting the font ascender.
+        let glyphX = origin.x + lineFragRect.origin.x + firstDigitLocation.x
+        let baselineY = origin.y + lineFragRect.origin.y + firstDigitLocation.y
+        let drawY = baselineY - font.ascender
+        let drawPoint = NSPoint(x: glyphX, y: drawY)
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.controlAccentColor,
+            .font: font,
+        ]
+
+        let text = "\(number)."
+        text.draw(at: drawPoint, withAttributes: attributes)
+    }
+
+    /// Returns the point size to use for the ordered-number overlay. Reads
+    /// the font attribute the styler wrote on the digit char to honour any
+    /// theme or zoom adjustment. Falls back to the system body size.
+    private nonisolated func orderedOverlayFontSize(forGlyphAt glyphIndex: Int) -> CGFloat {
+        let charIndex = characterIndexForGlyph(at: glyphIndex)
+        guard let storage = textStorage, charIndex < storage.length else {
+            return NSFont.systemFontSize
+        }
+        if let font = storage.attribute(.font, at: charIndex, effectiveRange: nil) as? NSFont {
+            return font.pointSize
+        }
+        return NSFont.systemFontSize
     }
 }
