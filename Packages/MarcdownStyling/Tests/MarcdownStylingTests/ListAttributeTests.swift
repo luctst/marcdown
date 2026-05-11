@@ -60,7 +60,8 @@ struct ListAttributeTests {
         for index in 2..<storage.length {
             let concealed = storage.attribute(.marcdownConcealed, at: index, effectiveRange: nil) as? Bool
             #expect(concealed != true, "expected position \(index) to NOT be concealed")
-            let marker = storage.attribute(.marcdownListMarker, at: index, effectiveRange: nil) as? MarcdownListMarkerKind
+            let marker =
+                storage.attribute(.marcdownListMarker, at: index, effectiveRange: nil) as? MarcdownListMarkerKind
             #expect(marker == nil, "expected no list-marker tag at position \(index)")
         }
     }
@@ -68,12 +69,13 @@ struct ListAttributeTests {
     @Test func dashBulletMarkerTagSpansTwoChars() {
         let storage = restyle("- foo")
         var effective = NSRange(location: 0, length: 0)
-        let kind = storage.attribute(
-            .marcdownListMarker,
-            at: 0,
-            longestEffectiveRange: &effective,
-            in: NSRange(location: 0, length: storage.length)
-        ) as? MarcdownListMarkerKind
+        let kind =
+            storage.attribute(
+                .marcdownListMarker,
+                at: 0,
+                longestEffectiveRange: &effective,
+                in: NSRange(location: 0, length: storage.length)
+            ) as? MarcdownListMarkerKind
         #expect(kind == .bullet)
         #expect(effective == NSRange(location: 0, length: 2))
     }
@@ -87,12 +89,13 @@ struct ListAttributeTests {
         let color = storage.attribute(.foregroundColor, at: 1, effectiveRange: nil) as? NSColor
         #expect(color == NSColor.clear)
         var effective = NSRange(location: 0, length: 0)
-        let kind = storage.attribute(
-            .marcdownListMarker,
-            at: 0,
-            longestEffectiveRange: &effective,
-            in: NSRange(location: 0, length: storage.length)
-        ) as? MarcdownListMarkerKind
+        let kind =
+            storage.attribute(
+                .marcdownListMarker,
+                at: 0,
+                longestEffectiveRange: &effective,
+                in: NSRange(location: 0, length: storage.length)
+            ) as? MarcdownListMarkerKind
         #expect(kind == .bullet)
         #expect(effective == NSRange(location: 0, length: 2))
     }
@@ -106,12 +109,13 @@ struct ListAttributeTests {
         let color = storage.attribute(.foregroundColor, at: 1, effectiveRange: nil) as? NSColor
         #expect(color == NSColor.clear)
         var effective = NSRange(location: 0, length: 0)
-        let kind = storage.attribute(
-            .marcdownListMarker,
-            at: 0,
-            longestEffectiveRange: &effective,
-            in: NSRange(location: 0, length: storage.length)
-        ) as? MarcdownListMarkerKind
+        let kind =
+            storage.attribute(
+                .marcdownListMarker,
+                at: 0,
+                longestEffectiveRange: &effective,
+                in: NSRange(location: 0, length: storage.length)
+            ) as? MarcdownListMarkerKind
         #expect(kind == .bullet)
         #expect(effective == NSRange(location: 0, length: 2))
     }
@@ -123,7 +127,8 @@ struct ListAttributeTests {
         for index in 0...1 {
             let concealed = storage.attribute(.marcdownConcealed, at: index, effectiveRange: nil) as? Bool
             #expect(concealed != true, "expected indent space \(index) to NOT be concealed")
-            let marker = storage.attribute(.marcdownListMarker, at: index, effectiveRange: nil) as? MarcdownListMarkerKind
+            let marker =
+                storage.attribute(.marcdownListMarker, at: index, effectiveRange: nil) as? MarcdownListMarkerKind
             #expect(marker == nil, "expected no list-marker tag at indent position \(index)")
         }
     }
@@ -165,12 +170,13 @@ struct ListAttributeTests {
     @Test func indentedBulletMarkerTagSpansTwoCharsAfterIndent() {
         let storage = restyle("  - foo")
         var effective = NSRange(location: 0, length: 0)
-        let kind = storage.attribute(
-            .marcdownListMarker,
-            at: 2,
-            longestEffectiveRange: &effective,
-            in: NSRange(location: 0, length: storage.length)
-        ) as? MarcdownListMarkerKind
+        let kind =
+            storage.attribute(
+                .marcdownListMarker,
+                at: 2,
+                longestEffectiveRange: &effective,
+                in: NSRange(location: 0, length: storage.length)
+            ) as? MarcdownListMarkerKind
         #expect(kind == .bullet)
         #expect(effective == NSRange(location: 2, length: 2))
     }
@@ -194,12 +200,13 @@ struct ListAttributeTests {
     @Test func emptyBulletMarkerTagSpansTwoChars() {
         let storage = restyle("- ")
         var effective = NSRange(location: 0, length: 0)
-        let kind = storage.attribute(
-            .marcdownListMarker,
-            at: 0,
-            longestEffectiveRange: &effective,
-            in: NSRange(location: 0, length: storage.length)
-        ) as? MarcdownListMarkerKind
+        let kind =
+            storage.attribute(
+                .marcdownListMarker,
+                at: 0,
+                longestEffectiveRange: &effective,
+                in: NSRange(location: 0, length: storage.length)
+            ) as? MarcdownListMarkerKind
         #expect(kind == .bullet)
         #expect(effective == NSRange(location: 0, length: 2))
     }
@@ -250,7 +257,8 @@ struct ListAttributeTests {
         for index in 3..<storage.length {
             let concealed = storage.attribute(.marcdownConcealed, at: index, effectiveRange: nil) as? Bool
             #expect(concealed != true, "expected position \(index) to NOT be concealed")
-            let marker = storage.attribute(.marcdownListMarker, at: index, effectiveRange: nil) as? MarcdownListMarkerKind
+            let marker =
+                storage.attribute(.marcdownListMarker, at: index, effectiveRange: nil) as? MarcdownListMarkerKind
             #expect(marker == nil, "expected no list-marker tag at position \(index)")
         }
     }
@@ -258,12 +266,13 @@ struct ListAttributeTests {
     @Test func orderedSingleDigitMarkerTagSpansThreeChars() {
         let storage = restyle("1. foo")
         var effective = NSRange(location: 0, length: 0)
-        let kind = storage.attribute(
-            .marcdownListMarker,
-            at: 0,
-            longestEffectiveRange: &effective,
-            in: NSRange(location: 0, length: storage.length)
-        ) as? MarcdownListMarkerKind
+        let kind =
+            storage.attribute(
+                .marcdownListMarker,
+                at: 0,
+                longestEffectiveRange: &effective,
+                in: NSRange(location: 0, length: storage.length)
+            ) as? MarcdownListMarkerKind
         #expect(kind == .ordered(number: 1))
         #expect(effective == NSRange(location: 0, length: 3))
     }
@@ -301,12 +310,13 @@ struct ListAttributeTests {
     @Test func orderedTwoDigitMarkerTagSpansFourChars() {
         let storage = restyle("10. bar")
         var effective = NSRange(location: 0, length: 0)
-        let kind = storage.attribute(
-            .marcdownListMarker,
-            at: 0,
-            longestEffectiveRange: &effective,
-            in: NSRange(location: 0, length: storage.length)
-        ) as? MarcdownListMarkerKind
+        let kind =
+            storage.attribute(
+                .marcdownListMarker,
+                at: 0,
+                longestEffectiveRange: &effective,
+                in: NSRange(location: 0, length: storage.length)
+            ) as? MarcdownListMarkerKind
         #expect(kind == .ordered(number: 10))
         #expect(effective == NSRange(location: 0, length: 4))
     }
@@ -314,12 +324,13 @@ struct ListAttributeTests {
     @Test func orderedNinetyNineMarkerTagCarriesNumber() {
         let storage = restyle("99. baz")
         var effective = NSRange(location: 0, length: 0)
-        let kind = storage.attribute(
-            .marcdownListMarker,
-            at: 0,
-            longestEffectiveRange: &effective,
-            in: NSRange(location: 0, length: storage.length)
-        ) as? MarcdownListMarkerKind
+        let kind =
+            storage.attribute(
+                .marcdownListMarker,
+                at: 0,
+                longestEffectiveRange: &effective,
+                in: NSRange(location: 0, length: storage.length)
+            ) as? MarcdownListMarkerKind
         #expect(kind == .ordered(number: 99))
         #expect(effective == NSRange(location: 0, length: 4))
     }
@@ -377,7 +388,8 @@ struct ListAttributeTests {
             #expect(
                 font?.fontDescriptor.symbolicTraits.contains(.monoSpace) != true,
                 "expected raw (non-monospace) font at position \(index)")
-            let marker = storage.attribute(.marcdownListMarker, at: index, effectiveRange: nil) as? MarcdownListMarkerKind
+            let marker =
+                storage.attribute(.marcdownListMarker, at: index, effectiveRange: nil) as? MarcdownListMarkerKind
             #expect(marker == nil, "expected no list-marker tag at position \(index)")
         }
     }
@@ -387,7 +399,8 @@ struct ListAttributeTests {
     @Test func checkboxLineIsNotTaggedByListPass() {
         let storage = restyle("- [ ] task")
         for index in 0..<storage.length {
-            let marker = storage.attribute(.marcdownListMarker, at: index, effectiveRange: nil) as? MarcdownListMarkerKind
+            let marker =
+                storage.attribute(.marcdownListMarker, at: index, effectiveRange: nil) as? MarcdownListMarkerKind
             #expect(marker == nil, "expected no list-marker tag at \(index) on a checkbox line")
         }
     }
@@ -422,12 +435,13 @@ struct ListAttributeTests {
         let storage = restyle("- a\n- b\n- c")
         for start in [0, 4, 8] {
             var effective = NSRange(location: 0, length: 0)
-            let kind = storage.attribute(
-                .marcdownListMarker,
-                at: start,
-                longestEffectiveRange: &effective,
-                in: NSRange(location: 0, length: storage.length)
-            ) as? MarcdownListMarkerKind
+            let kind =
+                storage.attribute(
+                    .marcdownListMarker,
+                    at: start,
+                    longestEffectiveRange: &effective,
+                    in: NSRange(location: 0, length: storage.length)
+                ) as? MarcdownListMarkerKind
             #expect(kind == .bullet, "expected .bullet at \(start)")
             #expect(effective == NSRange(location: start, length: 2), "expected 2-char span at \(start)")
         }
@@ -484,29 +498,29 @@ struct ListAttributeTests {
         // Bullet line: .bullet tag over {0, 2}.
         let bulletKind =
             storage.attribute(.marcdownListMarker, at: 0, effectiveRange: nil)
-                as? MarcdownListMarkerKind
+            as? MarcdownListMarkerKind
         #expect(bulletKind == .bullet)
 
         // Plain line: no list-marker tag.
         let plainKind =
             storage.attribute(.marcdownListMarker, at: 9, effectiveRange: nil)
-                as? MarcdownListMarkerKind
+            as? MarcdownListMarkerKind
         #expect(plainKind == nil)
 
         // Checkbox line: no list-marker tag (checkbox precedence) but checkbox state present.
         let checkboxLineKind =
             storage.attribute(.marcdownListMarker, at: 20, effectiveRange: nil)
-                as? MarcdownListMarkerKind
+            as? MarcdownListMarkerKind
         #expect(checkboxLineKind == nil)
         let checkboxState =
             storage.attribute(.marcdownCheckbox, at: 22, effectiveRange: nil)
-                as? MarcdownCheckboxState
+            as? MarcdownCheckboxState
         #expect(checkboxState != nil)
 
         // Ordered line: .ordered(1) tag at offset 31.
         let orderedKind =
             storage.attribute(.marcdownListMarker, at: 31, effectiveRange: nil)
-                as? MarcdownListMarkerKind
+            as? MarcdownListMarkerKind
         #expect(orderedKind == .ordered(number: 1))
     }
 
