@@ -139,15 +139,12 @@ struct StyleWalker: @preconcurrency MarkupWalker {
     }
 
     mutating func visitListItem(_ listItem: ListItem) {
-        // Plain unordered / ordered list markers get their dim treatment here.
-        // Task-list bullets and `[ ]` / `[x]` markers are handled exclusively
-        // by `CheckboxLineScanner` (run from `MarkdownStyler.restyle` after
-        // the AST walk). Keeping the AST out of checkbox concealment is
-        // deliberate — v1's "AST + regex" seam was the source of the
-        // restyle bugs we're trying to retire.
-        if listItem.checkbox == nil {
-            dimListMarker(for: listItem)
-        }
+        // List markers — both checkbox (`- [ ]` / `- [x]`) and plain
+        // (`- foo` / `1. foo`) — are owned by the scanner passes in
+        // `MarkdownStyler.restyle`, run after this AST walk. The AST is no
+        // longer the source of truth for list-marker concealment. We still
+        // descend so inline styling of body text (bold, italic, links, …)
+        // continues to apply.
         descendInto(listItem)
     }
 
@@ -295,50 +292,6 @@ struct StyleWalker: @preconcurrency MarkupWalker {
             let combined = manager.convert(current, toHaveTrait: trait)
             storage.addAttribute(.font, value: combined, range: subrange)
         }
-    }
-
-    private func dimListMarker(for listItem: ListItem) {
-        guard let itemRange = index.nsRange(listItem.range), itemRange.length > 0 else { return }
-        let substring = (storage.string as NSString).substring(with: itemRange)
-        guard let markerLength = markerLength(in: substring) else { return }
-        let markerRange = NSRange(location: itemRange.location, length: markerLength)
-        addAttributes([.foregroundColor: theme.dim], range: markerRange)
-    }
-
-    /// Returns the length (in UTF-16 units) of the leading list marker —
-    /// including any indentation and the space after the marker. Returns `nil`
-    /// if a marker can't be found (the item is empty or malformed).
-    private func markerLength(in line: String) -> Int? {
-        var cursor = line.startIndex
-        // Skip leading indentation.
-        while cursor < line.endIndex, line[cursor] == " " || line[cursor] == "\t" {
-            cursor = line.index(after: cursor)
-        }
-        guard cursor < line.endIndex else { return nil }
-        let first = line[cursor]
-
-        if first == "-" || first == "*" || first == "+" {
-            cursor = line.index(after: cursor)
-        } else if first.isNumber {
-            while cursor < line.endIndex, line[cursor].isNumber {
-                cursor = line.index(after: cursor)
-            }
-            guard cursor < line.endIndex, line[cursor] == "." || line[cursor] == ")" else {
-                return nil
-            }
-            cursor = line.index(after: cursor)
-        } else {
-            return nil
-        }
-
-        // Require (and include) at least one whitespace separator.
-        guard cursor < line.endIndex, line[cursor] == " " || line[cursor] == "\t" else {
-            return nil
-        }
-        cursor = line.index(after: cursor)
-
-        return line.utf16.distance(
-            from: line.utf16.startIndex, to: cursor.samePosition(in: line.utf16) ?? line.utf16.endIndex)
     }
 
     private func addAttributes(_ attrs: [NSAttributedString.Key: Any], range: NSRange) {
