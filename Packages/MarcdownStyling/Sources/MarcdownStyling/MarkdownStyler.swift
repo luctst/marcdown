@@ -51,6 +51,7 @@ public final class MarkdownStyler {
         if fullRange.length > 0 {
             storage.removeAttribute(.marcdownConcealed, range: fullRange)
             storage.removeAttribute(.marcdownCheckbox, range: fullRange)
+            storage.removeAttribute(.marcdownListMarker, range: fullRange)
         }
 
         var walker = StyleWalker(
@@ -65,6 +66,12 @@ public final class MarkdownStyler {
         // after the AST walk so any attributes the AST tried to set on
         // task-list bullets are overwritten here.
         applyCheckboxScannerPass(storage: storage, source: source)
+
+        // Single-source-of-truth pass for plain list-marker shape detection
+        // (bullet and ordered). Runs after the checkbox pass so checkbox
+        // lines are already owned and we skip them here. Also runs after
+        // the AST walk so any AST-applied attributes get overwritten.
+        applyListScannerPass(storage: storage, source: source)
 
         storage.endEditing()
     }
@@ -160,6 +167,154 @@ public final class MarkdownStyler {
             storage.addAttribute(.font, value: markerFont, range: markerRange)
 
             applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+        }
+    }
+
+    /// Walks `source` line-by-line. For each line, defers to
+    /// `CheckboxLineScanner` first — if that line is any kind of checkbox
+    /// (partial or complete), the checkbox pass already owns its attributes
+    /// and this pass leaves it alone. Otherwise, classifies via
+    /// `ListLineScanner` and applies the glyph-strategy attributes for plain
+    /// bullet / ordered markers. This is the only writer of
+    /// `.marcdownListMarker` in the entire pipeline.
+    private func applyListScannerPass(storage: NSTextStorage, source: String) {
+        let units = Array(source.utf16)
+        let length = units.count
+        var lineStart = 0
+        while lineStart <= length {
+            // Find lineEnd (the next `\n` or end of buffer).
+            var lineEnd = lineStart
+            while lineEnd < length, units[lineEnd] != 0x0A {
+                lineEnd += 1
+            }
+
+            let lineLength = lineEnd - lineStart
+            if lineLength > 0 {
+                let lineSlice = Array(units[lineStart..<lineEnd])
+                let line = lineSlice.withUnsafeBufferPointer {
+                    String(utf16CodeUnits: $0.baseAddress!, count: $0.count)
+                }
+                // Checkbox precedence with one exception: a `.complete`
+                // list shape (the user has a real `- ` / `1. ` marker)
+                // wins over a checkbox `.partial` — without this carve-out
+                // the line `- ` (typed but no `[` yet) would stay dimly
+                // concealed by the checkbox partial branch and never get
+                // its bullet anchor / marker tag. A `.complete` checkbox
+                // (`- [ ]` / `- [x]`) is owned by the checkbox pass
+                // exclusively.
+                let checkboxShape = CheckboxLineScanner.scan(line: line)
+                let listShape = ListLineScanner.scan(line: line)
+                let listOverrides: Bool
+                switch (checkboxShape, listShape) {
+                case (.none, _):
+                    listOverrides = true
+                case (.partial, .complete):
+                    listOverrides = true
+                default:
+                    listOverrides = false
+                }
+                if listOverrides {
+                    applyListAttributes(
+                        for: listShape,
+                        storage: storage,
+                        lineStart: lineStart,
+                        lineLength: lineLength
+                    )
+                }
+            }
+
+            // Advance past the `\n` (or stop if past end).
+            if lineEnd >= length { break }
+            lineStart = lineEnd + 1
+        }
+    }
+
+    private func applyListAttributes(
+        for shape: ListLineShape,
+        storage: NSTextStorage,
+        lineStart: Int,
+        lineLength: Int
+    ) {
+        switch shape {
+        case .none:
+            return
+        case .partial:
+            // No styling on partial markers — let them render as raw text. The user
+            // expects to see what they type (`1`, `1.`, `-`, etc.) until the marker
+            // is complete. Concealment / clear-paint during the partial state hides
+            // the chars and either collapses the line or shows nothing, which makes
+            // the cursor appear to misbehave. Once the trailing space lands and the
+            // scanner returns `.complete`, the proper marker treatment kicks in.
+            applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+        case .complete(let indentLength, let markerLength, let kind):
+            switch kind {
+            case .bullet:
+                // Marker layout is `<char><space>` (exactly 2 chars).
+                let markerRange = NSRange(
+                    location: lineStart + indentLength,
+                    length: markerLength
+                )
+                // Marker chars: paint `.clear` (NOT concealed — they must
+                // contribute their advance so the bullet icon has horizontal
+                // room without bleeding into the body text). The dash was
+                // previously concealed (`.null` glyph, zero advance), which
+                // collapsed the marker footprint to just the proportional
+                // space's ~4-5px box — the centred circle then overlapped the
+                // first body character. Force a monospaced font so the
+                // per-char advance is wide and stable. Mirrors the checkbox
+                // marker treatment above.
+                storage.removeAttribute(.marcdownConcealed, range: markerRange)
+                storage.addAttribute(.foregroundColor, value: NSColor.clear, range: markerRange)
+                let markerFont = NSFont.monospacedSystemFont(
+                    ofSize: baseFont.pointSize,
+                    weight: .regular
+                )
+                storage.addAttribute(.font, value: markerFont, range: markerRange)
+
+                // Tag the 2-char marker range so the layout manager can paint
+                // the bullet glyph.
+                storage.addAttribute(
+                    .marcdownListMarker,
+                    value: MarcdownListMarkerKind.bullet,
+                    range: markerRange
+                )
+
+                applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+            case .ordered(let number):
+                // Marker layout is `<digits>.<space>` — markerLength = digits + 2.
+                let digitCount = markerLength - 2
+                guard digitCount > 0 else { return }
+
+                // Marker chars (digits + `.` + space): paint `.clear` (NOT
+                // concealed — they must contribute their advance so the overlay
+                // `"<N>."` has horizontal room without bleeding into body text).
+                // Concealing the `.` and trailing space would shrink the marker
+                // footprint to just the digit advances; the overlay (digits + a
+                // period) is wider than that and would overlap body text on the
+                // right. Mirrors the `.complete .bullet` treatment immediately
+                // above — clear-paint over a monospaced font for a stable, wide
+                // footprint anchored by `.marcdownListMarker`.
+                let markerRange = NSRange(
+                    location: lineStart + indentLength,
+                    length: markerLength
+                )
+                storage.removeAttribute(.marcdownConcealed, range: markerRange)
+                storage.addAttribute(.foregroundColor, value: NSColor.clear, range: markerRange)
+                let monospaced = NSFont.monospacedSystemFont(
+                    ofSize: baseFont.pointSize,
+                    weight: .regular
+                )
+                storage.addAttribute(.font, value: monospaced, range: markerRange)
+
+                // Tag the full marker range with the ordered kind.
+                storage.addAttribute(
+                    .marcdownListMarker,
+                    value: MarcdownListMarkerKind.ordered(number: number),
+                    range: markerRange
+                )
+
+                applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+            }
         }
     }
 

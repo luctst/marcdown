@@ -58,11 +58,28 @@ struct ConcealmentTests {
         }
     }
 
-    @Test func emptyHeadingConcealsHashOnly() {
-        // `#\n` — the marker is a lone `#` (no trailing space). Length 1.
+    /// An empty heading marker (`#` with no body text on its line) is the
+    /// only content on that line. Concealing it via `.marcdownConcealed`
+    /// would substitute `.null` glyphs and collapse the line to zero width,
+    /// which drags the visible cursor up to the previous line while the
+    /// user is still typing the marker. Instead, the styler paints the
+    /// marker `.clear` and forces a monospaced font so the glyph is
+    /// invisible but still occupies a stable advance, and explicitly does
+    /// NOT set `.marcdownConcealed` on the marker character.
+    @Test func emptyHeadingMarkerIsClearPaintedMonospaced() {
+        // `#\nbody` — the marker on line 1 is a lone `#` (no trailing space).
         let storage = styledStorage("#\nbody")
-        let ranges = concealedRanges(in: storage)
-        #expect(ranges == [NSRange(location: 0, length: 1)])
+
+        let concealed = storage.attribute(.marcdownConcealed, at: 0, effectiveRange: nil) as? Bool
+        #expect(concealed != true)
+
+        let color = storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        #expect(color == NSColor.clear)
+
+        let font = storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        #expect(
+            font?.fontDescriptor.symbolicTraits.contains(.monoSpace) == true,
+            "expected monospace at the empty heading marker")
     }
 
     @Test func headingBodyTextIsNotConcealed() {

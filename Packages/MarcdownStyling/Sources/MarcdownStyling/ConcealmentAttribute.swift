@@ -17,4 +17,22 @@ extension NSAttributedString.Key {
     /// detect taps. Written exclusively by the line scanner pass in
     /// `MarkdownStyler.restyle`.
     public static let marcdownCheckbox = NSAttributedString.Key("marcdownCheckbox")
+
+    /// Tags the source range of a complete plain list marker — either a
+    /// bullet (`- `, `* `, `+ `) or an ordered marker (`1. `, `10. `, …).
+    /// Value is a `MarcdownListMarkerKind`. Written exclusively by the
+    /// list-scanner pass in `MarkdownStyler.restyle`; read by the editor's
+    /// custom layout manager to draw the bullet circle or the ordered
+    /// number overlay in place of the raw glyphs.
+    public static let marcdownListMarker = NSAttributedString.Key("marcdownListMarker")
+}
+
+/// Kind of plain list marker tagged by the list-scanner pass.
+///
+/// `.bullet` covers any of `-`, `*`, `+` followed by a single space/tab.
+/// `.ordered(number:)` carries the parsed integer that the layout manager
+/// re-draws as the visible glyph (e.g. `"10."`).
+public enum MarcdownListMarkerKind: Sendable, Equatable, Hashable {
+    case bullet
+    case ordered(number: Int)
 }

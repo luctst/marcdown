@@ -213,9 +213,32 @@ public struct NoteEditorView: NSViewRepresentable {
             )
             switch outcome {
             case .noOp:
-                return false
+                break
             case .replace(let range, let replacement, let cursorOffsetInBuffer):
                 let undoName = replacement.isEmpty ? "Remove Task Item" : "New Task Item"
+                guard textView.shouldChangeText(in: range, replacementString: replacement) else {
+                    return false
+                }
+                textView.undoManager?.setActionName(undoName)
+                storage.replaceCharacters(in: range, with: replacement)
+                textView.didChangeText()
+                textView.setSelectedRange(NSRange(location: cursorOffsetInBuffer, length: 0))
+                // textDidChange will run a restyle pass + propagate text.
+                return true
+            }
+
+            // Task-list helper did not claim the keystroke — try the plain
+            // list-marker helper as a fallback. Checkbox continuation must
+            // keep precedence, hence this ordering.
+            let listOutcome = ListContinuation.enterOutcome(
+                buffer: storage.string,
+                cursorOffset: cursor
+            )
+            switch listOutcome {
+            case .noOp:
+                return false
+            case .replace(let range, let replacement, let cursorOffsetInBuffer):
+                let undoName = replacement.isEmpty ? "Remove List Item" : "New List Item"
                 guard textView.shouldChangeText(in: range, replacementString: replacement) else {
                     return false
                 }
@@ -243,12 +266,33 @@ public struct NoteEditorView: NSViewRepresentable {
             )
             switch outcome {
             case .standard:
-                return false
+                break
             case .replace(let range, let cursorOffsetInBuffer):
                 guard textView.shouldChangeText(in: range, replacementString: "") else {
                     return false
                 }
                 textView.undoManager?.setActionName("Remove Task Item")
+                storage.replaceCharacters(in: range, with: "")
+                textView.didChangeText()
+                textView.setSelectedRange(NSRange(location: cursorOffsetInBuffer, length: 0))
+                // textDidChange will run a restyle pass + propagate text.
+                return true
+            }
+
+            // Task-list backspace helper did not claim the keystroke — try
+            // the plain list-marker helper as a fallback.
+            let listOutcome = ListContinuation.backspaceOutcome(
+                buffer: storage.string,
+                cursorOffset: cursor
+            )
+            switch listOutcome {
+            case .standard:
+                return false
+            case .replace(let range, let cursorOffsetInBuffer):
+                guard textView.shouldChangeText(in: range, replacementString: "") else {
+                    return false
+                }
+                textView.undoManager?.setActionName("Remove List Item")
                 storage.replaceCharacters(in: range, with: "")
                 textView.didChangeText()
                 textView.setSelectedRange(NSRange(location: cursorOffsetInBuffer, length: 0))
