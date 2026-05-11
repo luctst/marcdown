@@ -46,7 +46,29 @@ struct StyleWalker: @preconcurrency MarkupWalker {
         // range whose first character is not `#`; the prefix scan below will
         // simply find no `#` and skip.
         if let markerRange = atxHeadingMarkerRange(in: range) {
-            applyConceal(to: markerRange)
+            if markerRange.length < range.length {
+                // Non-empty heading: body text follows the marker, the line has
+                // a visible width so concealment is safe.
+                applyConceal(to: markerRange)
+            } else {
+                // Empty heading (`#` / `# ` with no body). Concealment via .null
+                // glyphs would collapse the line to zero width — the visible cursor
+                // would snap up to the previous line while the user is typing the
+                // marker. Clear-paint + monospaced keeps the marker invisible but
+                // gives the line a real advance so the cursor stays put. Same
+                // treatment as the bullet / ordered complete markers in
+                // `MarkdownStyler.applyListAttributes`.
+                let monospaced = NSFont.monospacedSystemFont(
+                    ofSize: baseFont.pointSize,
+                    weight: .regular
+                )
+                let clamped = clampedToStorage(markerRange)
+                if clamped.length > 0 {
+                    storage.removeAttribute(.marcdownConcealed, range: clamped)
+                    storage.addAttribute(.foregroundColor, value: NSColor.clear, range: clamped)
+                    storage.addAttribute(.font, value: monospaced, range: clamped)
+                }
+            }
         }
 
         descendInto(heading)
