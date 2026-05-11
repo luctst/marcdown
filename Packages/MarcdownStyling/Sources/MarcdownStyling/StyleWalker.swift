@@ -141,12 +141,15 @@ struct StyleWalker: @preconcurrency MarkupWalker {
         let clampedFull = clampedToStorage(range)
         guard clampedFull.length > 0 else { return }
 
-        // a/b. Monospaced font + background + tag whole block as a code block
-        // so the cursor-aware fence reveal can locate the containing block.
+        // a/b. Monospaced font + tag whole block as a code block. The custom
+        // background painter in `FocusOnAttachTextView.drawBackground(in:)`
+        // reads `.marcdownCodeBlock` to draw a full-width rounded container
+        // wrapping the entire block (fences are zero-width via
+        // `.marcdownConcealed`, so they collapse and provide natural top /
+        // bottom padding inside the box).
         addAttributes(
             [
                 .font: monospacedFont(),
-                .backgroundColor: theme.codeBackground,
             ],
             range: clampedFull
         )
@@ -203,8 +206,7 @@ struct StyleWalker: @preconcurrency MarkupWalker {
         // closing range may overlap the opening range — in that case skip the
         // closing pass to avoid double work. Also guard against unclosed fenced
         // blocks: if the "closing" line is not actually a fence marker (3
-        // backticks or tildes), it's user content and must not be clear-painted.
-        // Only apply fence treatment when the line is an actual fence marker (3 backticks or tildes).
+        // backticks or tildes), it's user content and must not be concealed.
         if isFenceMarkerLine(at: openingFenceRange.location, storageString: storageString, blockEnd: blockEnd) {
             applyFenceTreatment(to: openingFenceRange)
         }
@@ -226,19 +228,16 @@ struct StyleWalker: @preconcurrency MarkupWalker {
             && storageString.character(at: loc + 2) == first
     }
 
-    /// Marks `range` as a fence marker line: tags `.marcdownCodeFence`,
-    /// paints the foreground `.clear` (so the chars take horizontal advance
-    /// but render invisibly), pins a monospaced font (stable advance), and
-    /// strips any `.marcdownConcealed` attribute a previous pass may have
-    /// added (concealment uses `.null` glyphs which would collapse line
-    /// height — we want the opposite, a fully-laid-out invisible line).
+    /// Marks `range` as a fence marker line: tags both `.marcdownCodeFence`
+    /// and `.marcdownConcealed` so the concealment layout delegate suppresses
+    /// the fence glyphs entirely (zero-width via `.null` glyph properties).
+    /// The collapsed line heights serve as natural top/bottom padding inside
+    /// the surrounding rounded container.
     private func applyFenceTreatment(to range: NSRange) {
         let clamped = clampedToStorage(range)
         guard clamped.length > 0 else { return }
-        storage.removeAttribute(.marcdownConcealed, range: clamped)
         storage.addAttribute(.marcdownCodeFence, value: true, range: clamped)
-        storage.addAttribute(.foregroundColor, value: NSColor.clear, range: clamped)
-        storage.addAttribute(.font, value: monospacedFont(), range: clamped)
+        storage.addAttribute(.marcdownConcealed, value: true, range: clamped)
     }
 
     mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {

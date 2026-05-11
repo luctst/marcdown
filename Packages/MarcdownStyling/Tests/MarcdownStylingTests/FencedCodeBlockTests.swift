@@ -8,12 +8,13 @@ import Testing
 /// `MarkdownStyler` / `StyleWalker`.
 ///
 /// The contract under test:
-///   - Fence marker lines (` ``` ` / ` ```swift `) are clear-painted
-///     monospaced glyphs (not `.marcdownConcealed`), tagged with
-///     `.marcdownCodeFence = true`.
-///   - Code body lines get a monospaced font + a `.backgroundColor` fill.
+///   - Fence marker lines (` ``` ` / ` ```swift `) are fully concealed
+///     (zero glyph advance) via `.marcdownConcealed = true`, and tagged
+///     with `.marcdownCodeFence = true`.
+///   - Code body lines get a monospaced font.
 ///   - The full block range (fences + body) is tagged with
-///     `.marcdownCodeBlock = true`.
+///     `.marcdownCodeBlock = true` — the drawing pass uses this tag to
+///     render the rounded container.
 ///   - `StylingTheme.system.codeBackground` ships with a GitHub-style alpha
 ///     (>= 0.08) so the block is visibly distinct from prose.
 ///   - Restyle never mutates `storage.string`.
@@ -39,41 +40,16 @@ struct FencedCodeBlockTests {
 
     // MARK: - Fence marker line styling
 
-    /// The opening ` ``` ` line is rendered with clear glyphs so the user can
-    /// still place the cursor on it and edit, but the syntax characters
-    /// disappear visually. We assert on every character of that line (offsets
-    /// 0..<3 in the canonical source).
-    @Test func openingFenceCharsAreClearPainted() {
-        let source = "```\nlet x = 1\nlet y = 2\n```"
-        let storage = styledStorage(source)
-
-        for offset in 0..<3 {
-            let color = storage.attribute(.foregroundColor, at: offset, effectiveRange: nil) as? NSColor
-            #expect(color == NSColor.clear, "Opening fence char at \(offset) not clear-painted")
-        }
-    }
-
-    /// Fence chars must NOT use `.marcdownConcealed` — that attribute
-    /// collapses glyph advance via `.null`, which would drag the caret onto
-    /// the previous line while the user is typing the fence. The clear-paint
-    /// strategy preserves advance.
-    @Test func openingFenceCharsAreNotMarcdownConcealed() {
+    /// The opening ` ``` ` line is fully concealed (zero glyph advance) so
+    /// the user never sees the raw fence syntax. We assert on every
+    /// character of that line (offsets 0..<3 in the canonical source).
+    @Test func openingFenceCharsAreMarcdownConcealed() {
         let source = "```\nlet x = 1\nlet y = 2\n```"
         let storage = styledStorage(source)
 
         for offset in 0..<3 {
             let value = storage.attribute(.marcdownConcealed, at: offset, effectiveRange: nil) as? Bool
-            #expect(value != true, "Fence char at \(offset) was marked .marcdownConcealed")
-        }
-    }
-
-    @Test func openingFenceCharsAreMonospaced() {
-        let source = "```\nlet x = 1\nlet y = 2\n```"
-        let storage = styledStorage(source)
-
-        for offset in 0..<3 {
-            let font = storage.attribute(.font, at: offset, effectiveRange: nil) as? NSFont
-            #expect(isMonospaced(font), "Opening fence char at \(offset) not monospaced")
+            #expect(value == true, "Opening fence char at \(offset) not marked .marcdownConcealed")
         }
     }
 
@@ -89,26 +65,26 @@ struct FencedCodeBlockTests {
 
     /// A language-tagged opening fence (` ```swift `) — every char on the
     /// fence line (the backticks AND the language tag) is part of the marker
-    /// and gets the same treatment.
-    @Test func languageTaggedOpeningFenceIsClearPaintedAndTagged() {
+    /// and gets the same treatment: fully concealed + fence-tagged.
+    @Test func languageTaggedOpeningFenceIsConcealedAndTagged() {
         let source = "```swift\nlet x = 1\n```"
         let storage = styledStorage(source)
 
         // "```swift" spans offsets 0..<8.
         for offset in 0..<8 {
-            let color = storage.attribute(.foregroundColor, at: offset, effectiveRange: nil) as? NSColor
-            #expect(color == NSColor.clear, "Lang-tag fence char at \(offset) not clear-painted")
+            let concealed = storage.attribute(.marcdownConcealed, at: offset, effectiveRange: nil) as? Bool
+            #expect(concealed == true, "Lang-tag fence char at \(offset) not marked .marcdownConcealed")
 
             let fence = storage.attribute(.marcdownCodeFence, at: offset, effectiveRange: nil) as? Bool
             #expect(fence == true, "Lang-tag fence char at \(offset) missing .marcdownCodeFence")
         }
     }
 
-    /// The closing fence gets the same treatment as the opening fence: clear
-    /// glyphs + the `.marcdownCodeFence` tag. We locate it by string range
-    /// rather than hand-computed offsets to keep the test resilient to
-    /// trailing newline conventions.
-    @Test func closingFenceIsClearPaintedAndTagged() {
+    /// The closing fence gets the same treatment as the opening fence:
+    /// concealed glyphs + the `.marcdownCodeFence` tag. We locate it by
+    /// string range rather than hand-computed offsets to keep the test
+    /// resilient to trailing newline conventions.
+    @Test func closingFenceIsConcealedAndTagged() {
         let source = "```\nlet x = 1\nlet y = 2\n```"
         let storage = styledStorage(source)
 
@@ -117,8 +93,8 @@ struct FencedCodeBlockTests {
         #expect(closingRange.location != NSNotFound)
 
         for offset in closingRange.location..<(closingRange.location + closingRange.length) {
-            let color = storage.attribute(.foregroundColor, at: offset, effectiveRange: nil) as? NSColor
-            #expect(color == NSColor.clear, "Closing fence char at \(offset) not clear-painted")
+            let concealed = storage.attribute(.marcdownConcealed, at: offset, effectiveRange: nil) as? Bool
+            #expect(concealed == true, "Closing fence char at \(offset) not marked .marcdownConcealed")
 
             let fence = storage.attribute(.marcdownCodeFence, at: offset, effectiveRange: nil) as? Bool
             #expect(fence == true, "Closing fence char at \(offset) missing .marcdownCodeFence")
@@ -140,16 +116,16 @@ struct FencedCodeBlockTests {
         #expect(isMonospaced(font), "Body char is not monospaced")
     }
 
-    @Test func codeBodyCharsHaveBackgroundColor() {
-        let source = "```\nlet x = 1\nlet y = 2\n```"
+    @Test func codeBodyCharsHaveNoBackgroundColorAttribute() {
+        // Block code background is drawn via custom drawBackground(in:) — not via
+        // the .backgroundColor attribute. Inline code still uses .backgroundColor,
+        // but block body chars must not.
+        let source = "```\nlet x = 1\n```"
         let storage = styledStorage(source)
-
         let ns = source as NSString
-        let bodyRange = ns.range(of: "let x = 1")
-        #expect(bodyRange.location != NSNotFound)
-
-        let bg = storage.attribute(.backgroundColor, at: bodyRange.location, effectiveRange: nil) as? NSColor
-        #expect(bg != nil, "Body char has no .backgroundColor")
+        let innerRange = ns.range(of: "let x = 1")
+        let bg = storage.attribute(.backgroundColor, at: innerRange.location, effectiveRange: nil)
+        #expect(bg == nil, "block code body must not use .backgroundColor attribute")
     }
 
     // MARK: - Block-level tag
@@ -164,6 +140,22 @@ struct FencedCodeBlockTests {
 
         let value = storage.attribute(.marcdownCodeBlock, at: bodyRange.location, effectiveRange: nil) as? Bool
         #expect(value == true, "Body char missing .marcdownCodeBlock")
+    }
+
+    /// The fence lines themselves must also carry `.marcdownCodeBlock` —
+    /// the drawing pass relies on this to render the container with the
+    /// fence lines acting as natural top/bottom padding.
+    @Test func fenceLinesAreTaggedAsCodeBlock() {
+        let source = "```\nlet x = 1\n```"
+        let storage = styledStorage(source)
+
+        let openingTag = storage.attribute(.marcdownCodeBlock, at: 0, effectiveRange: nil) as? Bool
+        #expect(openingTag == true, "Opening fence char missing .marcdownCodeBlock")
+
+        let ns = source as NSString
+        let closingRange = ns.range(of: "```", options: .backwards)
+        let closingTag = storage.attribute(.marcdownCodeBlock, at: closingRange.location, effectiveRange: nil) as? Bool
+        #expect(closingTag == true, "Closing fence char missing .marcdownCodeBlock")
     }
 
     /// Two adjacent fenced blocks separated by a blank line — both should
@@ -237,21 +229,26 @@ struct FencedCodeBlockTests {
 
     // MARK: - Unclosed fence regression
 
-    @Test func unclosedFenceBodyIsNotClearPainted() {
-        // An unclosed block: the parser extends the CodeBlock to end-of-doc.
-        // Body lines must remain visible — not clear-painted — despite having
-        // no closing fence.
+    /// An unclosed block: the parser extends the CodeBlock to end-of-doc.
+    /// Body lines must remain visible — NOT concealed — despite having no
+    /// closing fence. Only the (single) opening fence line is concealed;
+    /// everything below it on the file is body and must keep its glyphs.
+    @Test func unclosedFenceBodyIsNotConcealed() {
         let source = "```\nhello\nworld\n\n\n"
         let storage = styledStorage(source)
         let ns = source as NSString
 
         let helloRange = ns.range(of: "hello")
-        let helloColor = storage.attribute(.foregroundColor, at: helloRange.location, effectiveRange: nil) as? NSColor
-        #expect(helloColor != NSColor.clear, "\"hello\" must not be clear-painted in an unclosed block")
+        for offset in helloRange.location..<(helloRange.location + helloRange.length) {
+            let concealed = storage.attribute(.marcdownConcealed, at: offset, effectiveRange: nil) as? Bool
+            #expect(concealed != true, "\"hello\" char at \(offset) was concealed in an unclosed block")
+        }
 
         let worldRange = ns.range(of: "world")
-        let worldColor = storage.attribute(.foregroundColor, at: worldRange.location, effectiveRange: nil) as? NSColor
-        #expect(worldColor != NSColor.clear, "\"world\" must not be clear-painted in an unclosed block")
+        for offset in worldRange.location..<(worldRange.location + worldRange.length) {
+            let concealed = storage.attribute(.marcdownConcealed, at: offset, effectiveRange: nil) as? Bool
+            #expect(concealed != true, "\"world\" char at \(offset) was concealed in an unclosed block")
+        }
     }
 
     @Test func unclosedFenceBodyIsNotTaggedAsFenceLine() {
@@ -268,16 +265,16 @@ struct FencedCodeBlockTests {
         #expect(worldFence != true, "\"world\" must not be tagged as a fence marker in an unclosed block")
     }
 
+    /// Reproduces the specific user-reported bug: type ```, content, then
+    /// press Enter many times → content must remain visible (not concealed).
     @Test func unclosedFenceAfterMultipleEntersBodyIsVisible() {
-        // Reproduces the specific user-reported bug: type ```, content, then
-        // press Enter many times → content becomes invisible.
         let source = "```\na\n\n\n\n\n"
         let storage = styledStorage(source)
         let ns = source as NSString
 
         let aRange = ns.range(of: "a")
-        let color = storage.attribute(.foregroundColor, at: aRange.location, effectiveRange: nil) as? NSColor
-        #expect(color != NSColor.clear, "\"a\" must be visible after multiple Enter presses in an unclosed block")
+        let concealed = storage.attribute(.marcdownConcealed, at: aRange.location, effectiveRange: nil) as? Bool
+        #expect(concealed != true, "\"a\" must not be concealed after multiple Enter presses in an unclosed block")
 
         let fenceVal = storage.attribute(.marcdownCodeFence, at: aRange.location, effectiveRange: nil) as? Bool
         #expect(fenceVal != true)

@@ -1,71 +1,73 @@
 # Spec: Code Block Visual Styling
 
 ## Objective
-Fenced code blocks currently render with broken or absent visual treatment — they read as plain prose, breaking the user's ability to distinguish code from narrative at a glance. We're restoring code blocks to a first-class visual element: a clearly delineated, padded container with monospace typography, comfortable contrast, and a calm aesthetic that fits Marcdown's minimal floating-panel feel. When a user pastes or writes a fenced block, it should feel like a small, well-lit room inside the document.
+Match the Raycast notes code block UX: a rounded container that wraps the code content with no visible fence markers. Users never type or see raw ` ``` ` — typing three backticks at the start of an empty line auto-expands into a code block scaffold, and the fence markers stay invisible thereafter.
 
 ## User Stories
-
-- As a writer keeping technical notes, I want fenced code blocks to be visually distinct from prose so I can scan a long note and instantly locate code.
-- As a developer pasting a snippet, I want the block to render with monospace text and a contained background so the code is readable and doesn't visually bleed into surrounding paragraphs.
-- As a user toggling between light and dark mode, I want the code block container to remain legible and aesthetically consistent in both appearances.
-- As someone editing inside a code block, I want the container to expand naturally as I type new lines, without flicker, layout jumps, or the background visually detaching from the text.
+- As a writer keeping technical notes, I want fenced code blocks to be visually distinct so I can scan and instantly locate code.
+- As a user, I want to create a code block by typing ` ``` ` and immediately start writing inside it — no need to manually close the fence or escape from raw markdown.
+- As a user reading my notes, I should never see the raw ` ``` ` syntax — it's an implementation detail of the file format, not a reading-time concern.
+- As a user toggling between light and dark mode, I want the container to remain legible in both.
 
 ## Visual Requirements
+- **Container**: each fenced block renders inside a rounded rectangle that spans the full editor content width.
+- **Background**: GitHub-style contrast (~8–10%) against the editor background. Light mode = light gray fill; dark mode = lifted near-black.
+- **Padding**: the box has visible breathing room above and below the code text (provided by the collapsed fence lines acting as natural top/bottom padding).
+- **Typography**: monospace font, body-text-size, comfortable line height.
+- **Fence markers**: completely concealed — zero glyph width via `.marcdownConcealed`. The user never sees ` ``` ` at all once the block is created.
+- **Caret**: system accent color, unchanged.
 
-- **Container**: each fenced block renders inside a visually unified surface that spans the full content width of the editor, with rounded corners.
-- **Background**: a subtle fill that is distinctly different from the editor background but never harsh — think a soft tinted panel, not a stark contrast slab. Light mode reads as a faint warm/neutral gray; dark mode reads as a slightly lifted near-black.
-- **Padding**: comfortable internal padding on all four sides so code never touches the container edge. Top and bottom padding clearly separate the block from surrounding paragraphs.
-- **Typography**: monospace font for the code itself, sized at parity with body text (not smaller, not larger). Line height tuned for code readability — slightly tighter than prose but still breathable.
-- **Fence markers** (the triple-backtick lines and any language identifier): visually de-emphasized — dimmed in color, optionally smaller, and clearly subordinate to the code content. They should feel like quiet metadata, not part of the code.
-- **Vertical rhythm**: a clear margin above and below the block to separate it from adjacent paragraphs, headings, or other blocks.
-- **No borders required**: fill alone should carry the visual delineation. If a border is used, it must be extremely subtle (hairline, low-contrast).
+## Behavior
+
+### Auto-expansion
+When the user types three consecutive backticks at the **start of an empty line** (and only then), Marcdown immediately:
+1. Inserts the matching closing fence three lines below
+2. Drops the cursor on the empty line between the two fences
+3. Renders the container around the now-empty body
+
+The user never types or sees the closing fence — it's part of the scaffold.
+
+**Trigger scope**: start of empty line only. Typing ` ``` ` mid-line or at the end of a line with prose does NOT auto-expand.
+
+### Backspace at the block boundary
+Backspace at the top edge of an empty freshly-created block is a **no-op**. The scaffold is not unwrapped. Users delete blocks by selecting the lines and deleting, like any other content.
+
+### Pasted markdown with raw fences
+When the user pastes text containing ` ``` ` markers, the styler **auto-collapses** them on the next styling pass — the pasted block renders with the same container treatment as keystroke-created blocks. No special paste handling needed; the styler already runs on every text change.
+
+### Language identifier
+Out of scope for v1. The auto-expansion creates a plain block with no language tag.
 
 ## Variants & Edge Cases
-
-- **Inline code** (single backticks): out of scope for this fix's container treatment, but should remain visually distinct (existing inline styling preserved — monospace + subtle inline highlight). Must not be confused with or affected by block styling.
-- **Single-line fenced block**: still renders as a full container with proper padding — does not collapse to a tight one-line strip.
-- **Multi-line fenced block**: container grows naturally with content; background remains continuous across all lines with no gaps between lines.
-- **Empty fenced block** (opening and closing fences with nothing between): renders as a small but visible container — user should see that an empty code block exists.
-- **Very long lines**: code that exceeds the editor width should follow the editor's existing wrap behavior; the container background must extend correctly across wrapped lines without visual breaks.
-- **Language identifier present** (e.g., ` ```swift `): the language tag is visually de-emphasized along with the opening fence; it does not need to render as a styled label or badge in this iteration.
-- **Unclosed fence** (user is actively typing, no closing fence yet): block should still render with the container styling from the opening fence onward, gracefully, without flicker on every keystroke.
-- **Light mode**: warm/neutral light fill, dark code text, dimmed fence markers.
-- **Dark mode**: lifted dark fill, light code text, dimmed fence markers — equivalent visual weight to light mode.
-- **Selection inside a block**: native text selection highlight renders cleanly over the container fill; selection is fully visible and the container background is not lost under it.
-- **Cursor inside a block**: caret is clearly visible against the container fill in both light and dark mode.
-- **Scrolling**: container fill scrolls with the text — no detachment, no lag, no z-order glitches over other styled elements.
-- **Adjacent blocks**: two fenced blocks separated by a blank line render as two distinct containers with clear visual separation, not as one merged block.
+- **Empty fenced block**: renders as a small but visible container (just the rounded box with padding from collapsed fence lines).
+- **Multi-line block**: container grows naturally with content.
+- **Very long lines**: follow existing wrap behavior; container background extends across wrapped lines.
+- **Unclosed fence** (rare, since auto-expansion produces matched pairs): container extends from opening fence to end of document. Acceptable — pragmatic over perfect.
+- **Inline code** (single backticks): unchanged; existing `.backgroundColor` treatment preserved.
+- **Light/dark mode**: GitHub-style contrast in both.
+- **Selection inside a block**: native selection highlight renders cleanly over the container fill.
+- **Adjacent blocks** (separated by blank line): render as two distinct containers.
 
 ## Success Criteria
-
 A reviewer can confirm this is done when:
 
-1. Typing ` ``` `, pressing Enter, typing several lines of code, and closing with ` ``` ` produces a visibly contained, padded, monospace block — distinct from surrounding prose at first glance.
-2. The opening and closing fence lines are dimmed and visually subordinate to the code content.
-3. The container background extends uniformly across every line of the block, including wrapped lines and empty lines within the block.
-4. Switching between light and dark mode (system appearance change) results in a code block that remains legible, aesthetically consistent, and proportionally contrasted in both.
-5. Selecting text inside a code block shows the native selection highlight clearly without erasing or obscuring the container background.
-6. Editing inside a block (adding/removing lines, typing rapidly) does not cause visible flicker, background gaps, or layout jumps.
-7. An inline code span on the same line as prose remains styled as inline code and is not promoted to block styling.
-8. An empty fenced block is visible as a small container, not invisible.
-9. Two adjacent fenced blocks separated by a blank line render as two distinct containers.
-10. The block visual passes a side-by-side comparison against Bear or Typora at a "feels equivalently polished" bar — not pixel-identical, but in the same quality tier.
+1. Typing ` ``` ` at the start of an empty line instantly produces a rounded container with the cursor positioned inside an empty body line. No raw fence markers are visible at any point.
+2. Typing ` ``` ` mid-line or at end-of-line-with-text does NOT auto-expand.
+3. After auto-expansion, typing code inside the block appears in monospace inside the container.
+4. The fence marker lines have zero glyph width — `.marcdownConcealed` is set on them.
+5. The rounded container wraps the entire block including the (zero-width) fence lines, giving natural top/bottom padding.
+6. Pasting markdown text containing ` ``` ` produces the same visual treatment as keystroke-created blocks.
+7. Backspace at the top of an empty freshly-created block is a no-op (the scaffold stays).
+8. Light and dark mode both render with GitHub-style contrast.
+9. Selection inside a block shows the native highlight without erasing the container background.
+10. Two adjacent blocks render as two distinct containers.
 
 ## Out of Scope
-
-- Syntax highlighting of code content by language (keywords, strings, comments colored differently). Code text inside the block is uniformly styled in this iteration.
-- Language label badges rendered as styled chips or pills above the block.
-- Copy-to-clipboard button or any interactive affordance attached to the block.
-- Line numbers inside code blocks.
-- Indented code blocks (the 4-space indent variant) — only fenced (triple-backtick) blocks are in scope.
-- Inline code styling changes — existing inline code treatment is preserved as-is.
-- Configurable themes or user-customizable code block colors.
-- Code folding or collapsing of long blocks.
-
-## Open Questions
-
-1. Should the fence lines (` ``` ` and optional language identifier) be **concealed entirely** when the cursor is outside the block (consistent with how Marcdown conceals other markdown syntax like bold/italic markers), or always remain visible-but-dimmed? This is a meaningful UX choice — concealment is more elegant but can disorient users who expect to see the raw markdown.
-2. Should the container span the **full editor width** or be **inset** from the left/right margins (similar to a blockquote indent)? Full-width reads cleaner; inset reads more like a "card."
-3. What is the target **contrast ratio** between the container fill and the editor background — barely-there (Notion-style, ~3% difference) or more pronounced (GitHub-style, ~8–10% difference)?
-4. Should the **caret color** change inside a code block, or remain the system accent? Some editors shift to a neutral caret inside code to reduce visual noise.
-5. For an **unclosed fence** still being typed, should the container render immediately on the opening fence line, or only after the closing fence is detected? Immediate rendering is more responsive but can feel "twitchy" if the user is mid-thought.
+- Syntax highlighting of code content by language.
+- Language identifier (` ```swift `) selection or display.
+- Copy-to-clipboard button on the block.
+- Line numbers.
+- Indented code blocks (4-space variant) — only fenced blocks are in scope.
+- Inline code styling changes.
+- Configurable themes.
+- Cursor-aware fence reveal (removed — fences are never visible).

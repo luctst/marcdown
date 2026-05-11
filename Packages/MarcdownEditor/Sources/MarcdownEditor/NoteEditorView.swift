@@ -163,8 +163,6 @@ public struct NoteEditorView: NSViewRepresentable {
         func restyle() {
             guard let storage else { return }
             styler.restyle(storage: storage, source: storage.string)
-            let cursor = textView?.selectedRange().location ?? 0
-            styler.updateFenceVisibility(in: storage, cursor: cursor)
         }
 
         public func textDidChange(_ notification: Notification) {
@@ -182,25 +180,11 @@ public struct NoteEditorView: NSViewRepresentable {
             // propagate the plain string to the binding for the view model's
             // debounced save to pick up.
             styler.restyle(storage: storage, source: storage.string)
-            // Restyle resets fence lines to `.clear`; immediately re-apply
-            // the cursor-aware reveal so the user keeps seeing the fences of
-            // whichever block they're currently editing.
-            let cursor = textView.selectedRange().location
-            styler.updateFenceVisibility(in: storage, cursor: cursor)
             text.wrappedValue = storage.string
             // Checkbox markers may have been added/removed by this edit;
             // refresh the pointing-hand hover rects so the cursor tracks
             // their current positions.
             textView.window?.invalidateCursorRects(for: textView)
-        }
-
-        public func textViewDidChangeSelection(_ notification: Notification) {
-            guard
-                let textView = notification.object as? NSTextView,
-                let storage = textView.textStorage
-            else { return }
-            let cursor = textView.selectedRange().location
-            styler.updateFenceVisibility(in: storage, cursor: cursor)
         }
 
         // MARK: - Task list keystroke handling
@@ -325,7 +309,6 @@ public struct NoteEditorView: NSViewRepresentable {
             guard
                 let storage = textView.textStorage,
                 let replacement = replacementString,
-                replacement == "]",
                 affectedCharRange.length == 0,
                 !textView.hasMarkedText()
             else { return true }
@@ -349,22 +332,50 @@ public struct NoteEditorView: NSViewRepresentable {
                 }
             }
 
-            guard
-                let expansion = CheckboxAutoExpansion.expansionOnTypingCloseBracket(
+            // Branch 1: third backtick at the start of an empty line — auto
+            // expand into a full fenced-block scaffold.
+            if replacement == "`",
+                let expansion = CodeBlockAutoExpansion.expansionOnTypingThirdBacktick(
                     beforeCursorOnLine: prefix
                 )
-            else { return true }
-
-            let prefixRange = NSRange(location: lineStart, length: cursor - lineStart)
-            guard textView.shouldChangeText(in: prefixRange, replacementString: expansion) else {
+            {
+                let prefixRange = NSRange(location: lineStart, length: cursor - lineStart)
+                guard textView.shouldChangeText(
+                    in: prefixRange,
+                    replacementString: expansion.replacement
+                ) else {
+                    return false
+                }
+                textView.undoManager?.setActionName("Insert Code Block")
+                storage.replaceCharacters(in: prefixRange, with: expansion.replacement)
+                textView.didChangeText()
+                let newCursor = lineStart + expansion.cursorOffsetInReplacement
+                textView.setSelectedRange(NSRange(location: newCursor, length: 0))
                 return false
             }
-            textView.undoManager?.setActionName("Insert Checkbox")
-            storage.replaceCharacters(in: prefixRange, with: expansion)
-            textView.didChangeText()
-            let newCursor = lineStart + (expansion as NSString).length
-            textView.setSelectedRange(NSRange(location: newCursor, length: 0))
-            return false
+
+            // Branch 2: closing `]` after a bare `[` — expand into a checkbox.
+            if replacement == "]",
+                let checkboxExpansion = CheckboxAutoExpansion.expansionOnTypingCloseBracket(
+                    beforeCursorOnLine: prefix
+                )
+            {
+                let prefixRange = NSRange(location: lineStart, length: cursor - lineStart)
+                guard textView.shouldChangeText(
+                    in: prefixRange,
+                    replacementString: checkboxExpansion
+                ) else {
+                    return false
+                }
+                textView.undoManager?.setActionName("Insert Checkbox")
+                storage.replaceCharacters(in: prefixRange, with: checkboxExpansion)
+                textView.didChangeText()
+                let newCursor = lineStart + (checkboxExpansion as NSString).length
+                textView.setSelectedRange(NSRange(location: newCursor, length: 0))
+                return false
+            }
+
+            return true
         }
 
         // MARK: - Click toggle
@@ -451,6 +462,58 @@ private final class FocusOnAttachTextView: NSTextView {
                 height: lineFragRect.height
             )
             addCursorRect(rect, cursor: .pointingHand)
+        }
+    }
+
+    /// Paints a full-width rounded background container behind every fenced
+    /// code block. The styler tags the entire block range (including the
+    /// zero-width fence lines) with `.marcdownCodeBlock`; we walk the tagged
+    /// ranges, ask the layout manager for their bounding rect, and draw a
+    /// single rounded rect per block before the glyphs are rendered. Drawing
+    /// here (rather than via `.backgroundColor`) lets the box extend
+    /// edge-to-edge regardless of the actual text width. The collapsed fence
+    /// lines provide natural top/bottom padding inside the box.
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        drawCodeBlockBackgrounds()
+    }
+
+    private func drawCodeBlockBackgrounds() {
+        guard
+            let layoutManager,
+            let textStorage,
+            let textContainer
+        else { return }
+        let totalLength = textStorage.length
+        guard totalLength > 0 else { return }
+
+        let fullRange = NSRange(location: 0, length: totalLength)
+        let origin = textContainerOrigin
+        let padding: CGFloat = 8
+        let cornerRadius: CGFloat = 6
+
+        textStorage.enumerateAttribute(.marcdownCodeBlock, in: fullRange, options: []) { value, charRange, _ in
+            guard value as? Bool == true else { return }
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: charRange,
+                actualCharacterRange: nil
+            )
+            guard glyphRange.length > 0 else { return }
+            var bodyRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            // Convert from container coordinates to view coordinates.
+            bodyRect.origin.x += origin.x
+            bodyRect.origin.y += origin.y
+            // Expand to full content width (edge-to-edge inside the scroll view).
+            let contentWidth = frame.width - origin.x * 2
+            let boxRect = NSRect(
+                x: origin.x,
+                y: bodyRect.minY - padding,
+                width: contentWidth,
+                height: bodyRect.height + padding * 2
+            )
+            let path = NSBezierPath(roundedRect: boxRect, xRadius: cornerRadius, yRadius: cornerRadius)
+            StylingTheme.system.codeBackground.setFill()
+            path.fill()
         }
     }
 

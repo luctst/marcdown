@@ -78,48 +78,6 @@ public final class MarkdownStyler {
         storage.endEditing()
     }
 
-    /// Reveals fence markers for the code block containing `cursor`, and
-    /// hides markers for every other block. Call after `restyle` and after
-    /// every selection change so the markers fade in/out as the caret moves.
-    ///
-    /// Fence ranges are pre-tagged by `StyleWalker.visitCodeBlock` with
-    /// `.marcdownCodeFence`; the enclosing block range is tagged with
-    /// `.marcdownCodeBlock`. This method only re-paints `.foregroundColor`
-    /// over those existing ranges — it never mutates characters and never
-    /// touches non-fence ranges.
-    public func updateFenceVisibility(in storage: NSTextStorage, cursor: Int) {
-        let length = storage.length
-        guard length > 0 else { return }
-        let safeCursor = min(max(cursor, 0), length - 1)
-        let fullRange = NSRange(location: 0, length: length)
-
-        storage.beginEditing()
-        // First pass: hide ALL fence lines (re-apply `.clear`).
-        storage.enumerateAttribute(.marcdownCodeFence, in: fullRange, options: []) { value, range, _ in
-            if value as? Bool == true {
-                storage.addAttribute(.foregroundColor, value: NSColor.clear, range: range)
-            }
-        }
-        // Second pass: if the cursor sits inside a code block, reveal that
-        // block's fences by repainting them with the dim theme color.
-        var blockEffective = NSRange(location: 0, length: 0)
-        let blockVal = storage.attribute(
-            .marcdownCodeBlock,
-            at: safeCursor,
-            longestEffectiveRange: &blockEffective,
-            in: fullRange
-        ) as? Bool
-        if blockVal == true {
-            storage.enumerateAttribute(.marcdownCodeFence, in: blockEffective, options: []) { value, range, _ in
-                if value as? Bool == true {
-                    storage.removeAttribute(.foregroundColor, range: range)
-                    storage.addAttribute(.foregroundColor, value: theme.dim, range: range)
-                }
-            }
-        }
-        storage.endEditing()
-    }
-
     /// Walks `source` line-by-line, classifying each via `CheckboxLineScanner`,
     /// and tags `.marcdownConcealed` / `.marcdownCheckbox` accordingly. This
     /// is the only writer of `.marcdownCheckbox` in the entire pipeline.
