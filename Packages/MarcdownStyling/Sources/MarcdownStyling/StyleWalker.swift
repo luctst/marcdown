@@ -138,13 +138,107 @@ struct StyleWalker: @preconcurrency MarkupWalker {
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
         guard let range = index.nsRange(codeBlock.range), range.length > 0 else { return }
+        let clampedFull = clampedToStorage(range)
+        guard clampedFull.length > 0 else { return }
+
+        // a/b. Monospaced font + background + tag whole block as a code block
+        // so the cursor-aware fence reveal can locate the containing block.
         addAttributes(
             [
                 .font: monospacedFont(),
                 .backgroundColor: theme.codeBackground,
             ],
-            range: range
+            range: clampedFull
         )
+        storage.addAttribute(.marcdownCodeBlock, value: true, range: clampedFull)
+
+        // c/d. Compute the opening and closing fence line ranges by scanning
+        // the raw storage string. `swift-markdown` reports the block range
+        // including the fence lines themselves; the body sits between the
+        // first and last `\n` inside that range.
+        let storageString = storage.string as NSString
+        let blockStart = clampedFull.location
+        let blockEnd = clampedFull.location + clampedFull.length
+
+        // Opening fence: from blockStart to (and including) the first `\n`.
+        var openingEnd = blockStart
+        while openingEnd < blockEnd,
+            storageString.character(at: openingEnd) != 0x0A
+        {
+            openingEnd += 1
+        }
+        // Include the `\n` itself if present, so the fence range covers the
+        // entire opening line.
+        if openingEnd < blockEnd {
+            openingEnd += 1
+        }
+        let openingFenceRange = NSRange(
+            location: blockStart,
+            length: openingEnd - blockStart
+        )
+
+        // Closing fence: walk backwards from blockEnd, skipping any trailing
+        // `\n` (cmark may or may not include a final newline depending on the
+        // input), then back to the start of that final line.
+        var closingScan = blockEnd
+        // Skip trailing newline(s) — there's typically one at most.
+        while closingScan > blockStart,
+            storageString.character(at: closingScan - 1) == 0x0A
+        {
+            closingScan -= 1
+        }
+        // Walk to the start of the line containing closingScan - 1.
+        var closingStart = closingScan
+        while closingStart > blockStart,
+            storageString.character(at: closingStart - 1) != 0x0A
+        {
+            closingStart -= 1
+        }
+        let closingFenceRange = NSRange(
+            location: closingStart,
+            length: blockEnd - closingStart
+        )
+
+        // e/f. Apply fence treatment. For malformed / single-line blocks the
+        // closing range may overlap the opening range — in that case skip the
+        // closing pass to avoid double work. Also guard against unclosed fenced
+        // blocks: if the "closing" line is not actually a fence marker (3
+        // backticks or tildes), it's user content and must not be clear-painted.
+        // Only apply fence treatment when the line is an actual fence marker (3 backticks or tildes).
+        if isFenceMarkerLine(at: openingFenceRange.location, storageString: storageString, blockEnd: blockEnd) {
+            applyFenceTreatment(to: openingFenceRange)
+        }
+        if closingFenceRange.location > openingFenceRange.location,
+           closingFenceRange.length > 0,
+           isFenceMarkerLine(at: closingFenceRange.location, storageString: storageString, blockEnd: blockEnd) {
+            applyFenceTreatment(to: closingFenceRange)
+        }
+    }
+
+    /// Returns true if the line starting at `loc` begins with three consecutive
+    /// backticks (0x60) or three consecutive tildes (0x7E) — the only valid
+    /// CommonMark fence openers/closers.
+    private func isFenceMarkerLine(at loc: Int, storageString: NSString, blockEnd: Int) -> Bool {
+        guard loc + 2 < blockEnd else { return false }
+        let first = storageString.character(at: loc)
+        guard first == 0x60 || first == 0x7E else { return false }
+        return storageString.character(at: loc + 1) == first
+            && storageString.character(at: loc + 2) == first
+    }
+
+    /// Marks `range` as a fence marker line: tags `.marcdownCodeFence`,
+    /// paints the foreground `.clear` (so the chars take horizontal advance
+    /// but render invisibly), pins a monospaced font (stable advance), and
+    /// strips any `.marcdownConcealed` attribute a previous pass may have
+    /// added (concealment uses `.null` glyphs which would collapse line
+    /// height — we want the opposite, a fully-laid-out invisible line).
+    private func applyFenceTreatment(to range: NSRange) {
+        let clamped = clampedToStorage(range)
+        guard clamped.length > 0 else { return }
+        storage.removeAttribute(.marcdownConcealed, range: clamped)
+        storage.addAttribute(.marcdownCodeFence, value: true, range: clamped)
+        storage.addAttribute(.foregroundColor, value: NSColor.clear, range: clamped)
+        storage.addAttribute(.font, value: monospacedFont(), range: clamped)
     }
 
     mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {

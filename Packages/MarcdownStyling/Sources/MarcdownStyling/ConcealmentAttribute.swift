@@ -25,6 +25,20 @@ extension NSAttributedString.Key {
     /// custom layout manager to draw the bullet circle or the ordered
     /// number overlay in place of the raw glyphs.
     public static let marcdownListMarker = NSAttributedString.Key("marcdownListMarker")
+
+    /// Tags the full source range of a fenced code block (opening fence,
+    /// body, and closing fence). Value is `Bool`. Written by
+    /// `StyleWalker.visitCodeBlock`; read by
+    /// `MarkdownStyler.updateFenceVisibility` to locate which block contains
+    /// the cursor so its fence markers can be revealed.
+    public static let marcdownCodeBlock = NSAttributedString.Key("marcdownCodeBlock")
+
+    /// Tags only the opening and closing fence marker lines of a fenced code
+    /// block (the ` ``` ` / ` ```swift ` lines). Value is `Bool`. Written by
+    /// `StyleWalker.visitCodeBlock`; read by
+    /// `MarkdownStyler.updateFenceVisibility` to know which sub-ranges to
+    /// paint clear (hidden) or dim (revealed when the cursor is inside).
+    public static let marcdownCodeFence = NSAttributedString.Key("marcdownCodeFence")
 }
 
 /// Kind of plain list marker tagged by the list-scanner pass.
