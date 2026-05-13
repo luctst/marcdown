@@ -213,7 +213,8 @@ struct StyleWalker: @preconcurrency MarkupWalker {
         // Up to 3 leading spaces.
         var leadingSpaces = 0
         while probe < upper, leadingSpaces < 4,
-              storageString.character(at: probe) == 0x20 {
+            storageString.character(at: probe) == 0x20
+        {
             probe += 1
             leadingSpaces += 1
         }
