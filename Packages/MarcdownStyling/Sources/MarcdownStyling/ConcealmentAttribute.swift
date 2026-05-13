@@ -29,15 +29,15 @@ extension NSAttributedString.Key {
     /// Tags the full source range of a fenced code block (opening fence,
     /// body, and closing fence). Value is `Bool`. Written by
     /// `StyleWalker.visitCodeBlock`; read by
-    /// `FocusOnAttachTextView.drawBackground(in:)` to draw the rounded
-    /// background container around the entire block.
+    /// `MarkdownStyler.updateFenceVisibility` to locate which block contains
+    /// the cursor so its fence markers can be revealed.
     public static let marcdownCodeBlock = NSAttributedString.Key("marcdownCodeBlock")
 
     /// Tags only the opening and closing fence marker lines of a fenced code
     /// block (the ` ``` ` / ` ```swift ` lines). Value is `Bool`. Written by
-    /// `StyleWalker.visitCodeBlock`. The fence lines are also tagged
-    /// `.marcdownConcealed`, so they render at zero glyph width — the user
-    /// never sees the raw fence syntax.
+    /// `StyleWalker.visitCodeBlock`; read by
+    /// `MarkdownStyler.updateFenceVisibility` to know which sub-ranges to
+    /// paint clear (hidden) or dim (revealed when the cursor is inside).
     public static let marcdownCodeFence = NSAttributedString.Key("marcdownCodeFence")
 }
 
