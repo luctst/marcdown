@@ -209,7 +209,164 @@ public struct NoteEditorView: NSViewRepresentable {
             if selector == #selector(NSResponder.deleteBackward(_:)) {
                 return handleDeleteBackward(in: textView)
             }
+            if selector == #selector(NSResponder.deleteToBeginningOfLine(_:)) {
+                return handleDeleteToBeginningOfLine(in: textView)
+            }
+            if selector == #selector(NSResponder.deleteWordBackward(_:)) {
+                return handleDeleteWordBackward(in: textView)
+            }
+            if selector == #selector(NSResponder.moveToBeginningOfLine(_:)) {
+                return handleMoveToBeginningOfLine(in: textView, extend: false)
+            }
+            if selector == #selector(NSResponder.moveToBeginningOfLineAndModifySelection(_:)) {
+                return handleMoveToBeginningOfLine(in: textView, extend: true)
+            }
             return false
+        }
+
+        // MARK: - Line-scoped navigation/delete
+
+        /// Returns the UTF-16 offset of the start of the line containing
+        /// `cursor`. Scans the storage string backward until a newline or the
+        /// start of the buffer.
+        private func lineStartOffset(in buffer: String, cursor: Int) -> Int {
+            let nsString = buffer as NSString
+            let upper = nsString.length
+            guard cursor >= 0, cursor <= upper else { return cursor }
+            var probe = cursor
+            while probe > 0, nsString.character(at: probe - 1) != 0x0A {
+                probe -= 1
+            }
+            return probe
+        }
+
+        private func handleDeleteToBeginningOfLine(in textView: NSTextView) -> Bool {
+            guard let storage = textView.textStorage else { return false }
+            if textView.hasMarkedText() { return false }
+
+            let selection = textView.selectedRange()
+            // A non-empty selection has a well-defined start; AppKit's default
+            // deletion semantics for `deleteToBeginningOfLine:` with a
+            // selection are fine. We only need to handle the caret case.
+            if selection.length > 0 { return false }
+
+            let cursor = selection.location
+            let lineStart = lineStartOffset(in: storage.string, cursor: cursor)
+            if cursor <= lineStart { return false }
+
+            let range = NSRange(location: lineStart, length: cursor - lineStart)
+            guard textView.shouldChangeText(in: range, replacementString: "") else {
+                return false
+            }
+            textView.undoManager?.setActionName("Delete to Beginning of Line")
+            storage.replaceCharacters(in: range, with: "")
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: lineStart, length: 0))
+            return true
+        }
+
+        private func handleDeleteWordBackward(in textView: NSTextView) -> Bool {
+            guard let storage = textView.textStorage else { return false }
+            if textView.hasMarkedText() { return false }
+
+            let selection = textView.selectedRange()
+            if selection.length > 0 { return false }
+
+            let cursor = selection.location
+            let buffer = storage.string
+            let lineStart = lineStartOffset(in: buffer, cursor: cursor)
+            if cursor <= lineStart { return false }
+
+            // Ask AppKit where its word-back motion would land.
+            let proposed = NSRange(location: cursor, length: 0)
+            let wordRange = textView.selectionRange(
+                forProposedRange: proposed,
+                granularity: .selectByWord
+            )
+            // `wordRange.location` is the start of the word containing the
+            // caret. Clamp to the line so we never cross a newline.
+            var wordStart = max(wordRange.location, lineStart)
+            if wordStart >= cursor { return false }
+
+            // If everything between the would-be word start and the start of
+            // the line is concealed (markdown syntax like `# `, `- `, `[ ] `),
+            // extend the deletion through to the true line start so the
+            // entire visible word + its hidden marker go together.
+            if wordStart > lineStart,
+                rangeIsAllConcealed(
+                    in: storage,
+                    range: NSRange(location: lineStart, length: wordStart - lineStart)
+                )
+            {
+                wordStart = lineStart
+            }
+
+            let range = NSRange(location: wordStart, length: cursor - wordStart)
+            guard textView.shouldChangeText(in: range, replacementString: "") else {
+                return false
+            }
+            textView.undoManager?.setActionName("Delete Word")
+            storage.replaceCharacters(in: range, with: "")
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: wordStart, length: 0))
+            return true
+        }
+
+        /// True if every character in `range` carries the `.marcdownConcealed`
+        /// attribute. An empty range returns false (no characters to extend
+        /// through).
+        private func rangeIsAllConcealed(in storage: NSTextStorage, range: NSRange) -> Bool {
+            guard range.length > 0,
+                range.location >= 0,
+                range.location + range.length <= storage.length
+            else { return false }
+            var allConcealed = true
+            storage.enumerateAttribute(
+                .marcdownConcealed,
+                in: range,
+                options: []
+            ) { value, _, stop in
+                if (value as? Bool) != true {
+                    allConcealed = false
+                    stop.pointee = true
+                }
+            }
+            return allConcealed
+        }
+
+        private func handleMoveToBeginningOfLine(
+            in textView: NSTextView,
+            extend: Bool
+        ) -> Bool {
+            guard let storage = textView.textStorage else { return false }
+            if textView.hasMarkedText() { return false }
+
+            let selection = textView.selectedRange()
+            // The caret end is the active end for shift-extended moves.
+            let cursor = extend
+                ? (selection.location + selection.length)
+                : selection.location
+            let lineStart = lineStartOffset(in: storage.string, cursor: cursor)
+            if cursor <= lineStart { return false }
+
+            if extend {
+                // Extend the selection so its active end is at the true line
+                // start. If the caret was below the anchor we collapse onto
+                // the line start; otherwise we grow leftward.
+                let anchor = selection.location
+                if lineStart <= anchor {
+                    textView.setSelectedRange(
+                        NSRange(location: lineStart, length: anchor - lineStart)
+                    )
+                } else {
+                    textView.setSelectedRange(
+                        NSRange(location: anchor, length: lineStart - anchor)
+                    )
+                }
+            } else {
+                textView.setSelectedRange(NSRange(location: lineStart, length: 0))
+            }
+            return true
         }
 
         private func handleInsertNewline(in textView: NSTextView) -> Bool {
