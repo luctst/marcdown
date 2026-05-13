@@ -11,6 +11,7 @@ public struct StylingTheme {
     public var dim: NSColor
     public var accent: NSColor
     public var codeBackground: NSColor
+    public var codeBlockBackground: NSColor
     public var quoteBar: NSColor
 
     public init(
@@ -18,22 +19,31 @@ public struct StylingTheme {
         dim: NSColor,
         accent: NSColor,
         codeBackground: NSColor,
+        codeBlockBackground: NSColor,
         quoteBar: NSColor
     ) {
         self.body = body
         self.dim = dim
         self.accent = accent
         self.codeBackground = codeBackground
+        self.codeBlockBackground = codeBlockBackground
         self.quoteBar = quoteBar
     }
 
     /// Default theme using AppKit semantic colors.
+    ///
+    /// `codeBlockBackground` is intentionally softer than `codeBackground`:
+    /// the inline-code chip is a narrow run where 0.12 alpha reads as a
+    /// gentle highlight, but a fenced block covers a much larger area and
+    /// the same alpha would feel heavy. 0.10 keeps the rounded container
+    /// visible without dominating the page.
     public static var system: StylingTheme {
         StylingTheme(
             body: .labelColor,
             dim: .secondaryLabelColor,
             accent: .controlAccentColor,
             codeBackground: NSColor(white: 0.5, alpha: 0.12),
+            codeBlockBackground: NSColor(white: 0.5, alpha: 0.10),
             quoteBar: .tertiaryLabelColor
         )
     }

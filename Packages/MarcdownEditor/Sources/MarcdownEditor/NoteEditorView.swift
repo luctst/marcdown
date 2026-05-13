@@ -37,6 +37,11 @@ public struct NoteEditorView: NSViewRepresentable {
         // Build the TextKit 1 stack manually so we own the NSTextStorage.
         let storage = NSTextStorage(string: text)
         let layoutManager = CheckboxIconLayoutManager()
+        // Hand the layout manager the same code-block fill color the styler
+        // uses so the rounded container matches the rest of the palette.
+        // Passing the resolved color (rather than the theme) keeps the
+        // layout manager free of `@MainActor` coupling for its draw path.
+        layoutManager.codeBlockFillColor = context.coordinator.codeBlockFillColor
         storage.addLayoutManager(layoutManager)
 
         // The concealment delegate suppresses glyphs whose characters are
@@ -116,6 +121,11 @@ public struct NoteEditorView: NSViewRepresentable {
         private weak var textView: NSTextView?
         private weak var storage: NSTextStorage?
         private let styler = MarkdownStyler()
+        /// The rounded code-block container fill color, sourced from the
+        /// same theme the styler uses. Exposed so `makeNSView` can pass it
+        /// to the layout manager without coupling the layout manager's
+        /// `nonisolated` draw path to `@MainActor` types.
+        var codeBlockFillColor: NSColor { styler.theme.codeBlockBackground }
         /// Held strongly because `NSLayoutManager.delegate` is `weak`.
         let layoutDelegate = ConcealmentLayoutDelegate()
         /// Token for the focus-restore observer, removed on deinit. Mirrors
