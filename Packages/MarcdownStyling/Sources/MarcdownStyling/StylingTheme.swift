@@ -33,23 +33,8 @@ public struct StylingTheme {
             body: .labelColor,
             dim: .secondaryLabelColor,
             accent: .controlAccentColor,
-            codeBackground: .marcdownCodeBackground,
+            codeBackground: NSColor(white: 0.5, alpha: 0.12),
             quoteBar: .tertiaryLabelColor
         )
-    }
-}
-
-extension NSColor {
-    /// Adaptive code-block background that resolves to a GitHub-style
-    /// contrast in both light and dark appearances. Light mode darkens the
-    /// canvas by 10 %, dark mode lifts the canvas by 8 % — both are clearly
-    /// visible without competing with body text.
-    fileprivate static let marcdownCodeBackground: NSColor = NSColor(name: nil) { appearance in
-        switch appearance.bestMatch(from: [.darkAqua, .aqua]) {
-        case .darkAqua:
-            return NSColor(white: 1.0, alpha: 0.08)
-        default:
-            return NSColor(white: 0.0, alpha: 0.10)
-        }
     }
 }

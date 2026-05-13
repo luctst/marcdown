@@ -163,8 +163,6 @@ public struct NoteEditorView: NSViewRepresentable {
         func restyle() {
             guard let storage else { return }
             styler.restyle(storage: storage, source: storage.string)
-            let cursor = textView?.selectedRange().location ?? 0
-            styler.updateFenceVisibility(in: storage, cursor: cursor)
         }
 
         public func textDidChange(_ notification: Notification) {
@@ -182,25 +180,11 @@ public struct NoteEditorView: NSViewRepresentable {
             // propagate the plain string to the binding for the view model's
             // debounced save to pick up.
             styler.restyle(storage: storage, source: storage.string)
-            // Restyle resets fence lines to `.clear`; immediately re-apply
-            // the cursor-aware reveal so the user keeps seeing the fences of
-            // whichever block they're currently editing.
-            let cursor = textView.selectedRange().location
-            styler.updateFenceVisibility(in: storage, cursor: cursor)
             text.wrappedValue = storage.string
             // Checkbox markers may have been added/removed by this edit;
             // refresh the pointing-hand hover rects so the cursor tracks
             // their current positions.
             textView.window?.invalidateCursorRects(for: textView)
-        }
-
-        public func textViewDidChangeSelection(_ notification: Notification) {
-            guard
-                let textView = notification.object as? NSTextView,
-                let storage = textView.textStorage
-            else { return }
-            let cursor = textView.selectedRange().location
-            styler.updateFenceVisibility(in: storage, cursor: cursor)
         }
 
         // MARK: - Task list keystroke handling
