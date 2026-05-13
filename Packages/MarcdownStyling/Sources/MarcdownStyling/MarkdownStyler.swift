@@ -9,7 +9,10 @@ import Markdown
 /// the theme so the user can keep editing in plain markdown.
 @MainActor
 public final class MarkdownStyler {
-    private let theme: StylingTheme
+    /// Exposed so callers (e.g. the editor's layout manager) can read the
+    /// same theme the styler used to write attributes — keeps the rounded
+    /// code-block container fill in sync with the styler's other colors.
+    public let theme: StylingTheme
     private let baseFont: NSFont
 
     public init(theme: StylingTheme = .system, baseFont: NSFont = .systemFont(ofSize: 14)) {
@@ -52,6 +55,7 @@ public final class MarkdownStyler {
             storage.removeAttribute(.marcdownConcealed, range: fullRange)
             storage.removeAttribute(.marcdownCheckbox, range: fullRange)
             storage.removeAttribute(.marcdownListMarker, range: fullRange)
+            storage.removeAttribute(.marcdownCodeBlock, range: fullRange)
         }
 
         var walker = StyleWalker(

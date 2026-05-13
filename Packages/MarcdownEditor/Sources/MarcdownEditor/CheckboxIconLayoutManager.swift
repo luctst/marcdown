@@ -30,8 +30,27 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
     /// is safe in practice.
     private nonisolated(unsafe) var drawnListRanges: Set<NSRange> = []
 
+    /// Per-draw deduplication for code-block containers. A fenced block can
+    /// straddle multiple dirty rects; without this set we'd fill the rounded
+    /// rect twice and the overlap would visibly darken. AppKit drawing always
+    /// happens on the main thread, so the unchecked annotation is safe in
+    /// practice.
+    private nonisolated(unsafe) var drawnCodeBlockRanges: Set<NSRange> = []
+
+    /// Fill color for the rounded code-block container. Set by the editor's
+    /// `makeNSView` from the same `StylingTheme` the styler uses so the
+    /// container matches the rest of the palette. `NSColor` is `Sendable`,
+    /// so this stays clean under Swift 6. Falls back to a neutral gray
+    /// when unset (preserves usability for tests / previews).
+    nonisolated(unsafe) var codeBlockFillColor: NSColor?
+
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+        // Code-block container is drawn first so checkbox + list-marker
+        // overlays render on top if they ever coincide (defensive — they
+        // shouldn't overlap in practice, but the icons are interactive UI
+        // and must never be visually clipped by a background fill).
+        drawCodeBlockBackgrounds(forGlyphRange: glyphsToShow, at: origin)
         drawCheckboxIcons(forGlyphRange: glyphsToShow, at: origin)
         drawListMarkers(forGlyphRange: glyphsToShow, at: origin)
     }
@@ -254,5 +273,91 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
             return font.pointSize
         }
         return NSFont.systemFontSize
+    }
+
+    // MARK: - Code block container
+
+    /// Paints a single rounded rect behind each `.marcdownCodeBlock` run.
+    /// The container hugs the text container's width (minus a small inset)
+    /// rather than wrapping the text glyphs, mimicking the Raycast Notes
+    /// look. Runs once per draw cycle per block via `drawnCodeBlockRanges`.
+    private nonisolated func drawCodeBlockBackgrounds(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        drawnCodeBlockRanges.removeAll(keepingCapacity: true)
+
+        guard let storage = textStorage else { return }
+        guard let container = textContainers.first else { return }
+        guard glyphsToShow.length > 0 else { return }
+
+        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        guard charRange.length > 0 else { return }
+
+        let storageLength = storage.length
+        let upper = min(charRange.location + charRange.length, storageLength)
+
+        // Container geometry. `containerSize.width` reflects the text view's
+        // current laid-out width when `widthTracksTextView` is true.
+        let containerWidth = container.size.width
+        // The rounded rect spans the full content width — internal breathing
+        // room comes from the paragraph-style indents the styler sets on the
+        // code block, not from narrowing the rect.
+        let horizontalInset: CGFloat = 0
+        let cornerRadius: CGFloat = 6
+
+        let fillColor = codeBlockFillColor ?? NSColor.gray.withAlphaComponent(0.10)
+
+        var probe = charRange.location
+        while probe < upper {
+            var effective = NSRange(location: 0, length: 0)
+            let value = storage.attribute(
+                .marcdownCodeBlock,
+                at: probe,
+                longestEffectiveRange: &effective,
+                in: NSRange(location: 0, length: storageLength)
+            )
+            if let flag = value as? Bool, flag, effective.length > 0 {
+                if !drawnCodeBlockRanges.contains(effective) {
+                    drawnCodeBlockRanges.insert(effective)
+
+                    let blockGlyphRange = glyphRange(
+                        forCharacterRange: effective,
+                        actualCharacterRange: nil
+                    )
+                    if blockGlyphRange.length > 0 {
+                        let bounding = boundingRect(
+                            forGlyphRange: blockGlyphRange,
+                            in: container
+                        )
+                        // Translate into view coordinates and stretch to
+                        // full container width minus inset. The vertical
+                        // extent is whatever the glyphs occupied — for an
+                        // empty fenced block this is still the two fence
+                        // lines' height, so the container remains visible.
+                        // Expand the bounding rect by 6pt top and 6pt bottom
+                        // so the fence lines have breathing room inside the
+                        // rounded container rather than sitting flush against
+                        // its edges. Horizontal breathing room is provided by
+                        // the paragraph-style indents on the code block run.
+                        var rect = NSRect(
+                            x: origin.x + horizontalInset,
+                            y: origin.y + bounding.origin.y,
+                            width: max(0, containerWidth - horizontalInset * 2),
+                            height: bounding.height
+                        )
+                        rect.origin.y -= 6
+                        rect.size.height += 12
+                        if rect.width > 0, rect.height > 0 {
+                            let path = NSBezierPath(
+                                roundedRect: rect,
+                                xRadius: cornerRadius,
+                                yRadius: cornerRadius
+                            )
+                            fillColor.setFill()
+                            path.fill()
+                        }
+                    }
+                }
+            }
+            probe = max(probe + 1, effective.location + effective.length)
+        }
     }
 }

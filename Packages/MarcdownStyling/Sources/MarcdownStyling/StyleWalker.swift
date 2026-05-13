@@ -138,13 +138,97 @@ struct StyleWalker: @preconcurrency MarkupWalker {
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
         guard let range = index.nsRange(codeBlock.range), range.length > 0 else { return }
+
+        // Monospace the whole block (fences + body). The rounded container
+        // is painted by the layout manager from `.marcdownCodeBlock`; setting
+        // `.backgroundColor` here would render per-glyph rectangles under
+        // the rounded fill and bleed past its edges. The container alone
+        // owns the background.
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.paragraphSpacingBefore = 8
+        paragraph.paragraphSpacing = 8
+        // 14pt of horizontal text inset on each side so the code text and
+        // fence lines sit comfortably inside the rounded container the
+        // layout manager paints from `.marcdownCodeBlock`. `tailIndent`
+        // is negative per AppKit convention (offset from the trailing
+        // edge of the text container).
+        paragraph.firstLineHeadIndent = 14
+        paragraph.headIndent = 14
+        paragraph.tailIndent = -14
         addAttributes(
             [
                 .font: monospacedFont(),
-                .backgroundColor: theme.codeBackground,
+                .paragraphStyle: paragraph,
             ],
             range: range
         )
+
+        // Tag the entire block (including fence lines) so the layout
+        // manager can locate the run and draw a single rounded container.
+        let clamped = clampedToStorage(range)
+        if clamped.length > 0 {
+            storage.addAttribute(.marcdownCodeBlock, value: true, range: clamped)
+        }
+
+        // Dim the fence lines. Walk line-by-line through the block; a fence
+        // is a line whose first non-whitespace run is ``` or ~~~ followed by
+        // an optional info string. The AST guarantees we have a fenced
+        // block, so the first and last lines of the range are fences.
+        dimFenceLines(in: clamped)
+    }
+
+    /// Scans the lines inside `blockRange` and applies `theme.dim` to any
+    /// line that consists of a code fence (``` or ~~~ with an optional info
+    /// string). Body lines are left at `theme.body` from the base attributes.
+    private func dimFenceLines(in blockRange: NSRange) {
+        guard blockRange.length > 0 else { return }
+        let storageString = storage.string as NSString
+        let upper = blockRange.location + blockRange.length
+        var lineStart = blockRange.location
+        while lineStart < upper {
+            var lineEnd = lineStart
+            while lineEnd < upper, storageString.character(at: lineEnd) != 0x0A {
+                lineEnd += 1
+            }
+            let lineLength = lineEnd - lineStart
+            if lineLength > 0 {
+                let lineRange = NSRange(location: lineStart, length: lineLength)
+                if isFenceLine(at: lineRange, in: storageString) {
+                    addAttributes([.foregroundColor: theme.dim], range: lineRange)
+                }
+            }
+            // Skip past the `\n` (if any).
+            if lineEnd >= upper { break }
+            lineStart = lineEnd + 1
+        }
+    }
+
+    /// Returns true if the storage characters in `lineRange` form a CommonMark
+    /// fence: up to 3 leading spaces, then a run of 3+ backticks or tildes,
+    /// then optional info-string text. Trailing whitespace is ignored.
+    private func isFenceLine(at lineRange: NSRange, in storageString: NSString) -> Bool {
+        let upper = lineRange.location + lineRange.length
+        var probe = lineRange.location
+
+        // Up to 3 leading spaces.
+        var leadingSpaces = 0
+        while probe < upper, leadingSpaces < 4,
+              storageString.character(at: probe) == 0x20 {
+            probe += 1
+            leadingSpaces += 1
+        }
+        guard leadingSpaces < 4, probe < upper else { return false }
+
+        let fenceChar = storageString.character(at: probe)
+        // 0x60 backtick, 0x7E tilde.
+        guard fenceChar == 0x60 || fenceChar == 0x7E else { return false }
+
+        var fenceCount = 0
+        while probe < upper, storageString.character(at: probe) == fenceChar {
+            fenceCount += 1
+            probe += 1
+        }
+        return fenceCount >= 3
     }
 
     mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {
