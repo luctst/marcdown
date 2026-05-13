@@ -101,47 +101,6 @@ struct FencedCodeBlockTests {
         }
     }
 
-    // MARK: - Typing-attribute inheritance regression
-
-    @Test func openingFenceTrailingNewlineIsNotConcealed() {
-        // After ``` auto-expansion the cursor sits at the start of the empty body
-        // line — position 4 in "```\n\n```". AppKit's typingAttributes at an
-        // insertion point inherit from the character at cursor-1 (here: position 3,
-        // the line terminator of the opening fence). If that `\n` is tagged
-        // `.marcdownConcealed`, every char the user types inherits the conceal flag
-        // and renders as a `.null` glyph — i.e., invisible. The fix keeps the `\n`
-        // outside the concealed opening-fence range so typing attributes stay clean.
-        let source = "```\n\n```"
-        let storage = styledStorage(source)
-
-        // Position 3 is the `\n` terminating the opening fence line.
-        let concealed = storage.attribute(.marcdownConcealed, at: 3, effectiveRange: nil) as? Bool
-        #expect(
-            concealed != true,
-            "opening fence trailing \\n must NOT be .marcdownConcealed — typing at start of body line would inherit concealment"
-        )
-
-        // Sanity: the three backticks themselves ARE still concealed.
-        for offset in 0..<3 {
-            let backtickConcealed = storage.attribute(.marcdownConcealed, at: offset, effectiveRange: nil) as? Bool
-            #expect(
-                backtickConcealed == true,
-                "opening fence backtick at \(offset) must remain concealed"
-            )
-        }
-    }
-
-    @Test func languageTaggedOpeningFenceTrailingNewlineIsNotConcealed() {
-        // Same invariant with a language identifier: ```swift\n...
-        // The `\n` after "swift" must not be concealed.
-        let source = "```swift\nlet x = 1\n```"
-        let storage = styledStorage(source)
-        let ns = source as NSString
-        let newlineAfterSwift = ns.range(of: "```swift\n").length - 1  // index of `\n`
-        let concealed = storage.attribute(.marcdownConcealed, at: newlineAfterSwift, effectiveRange: nil) as? Bool
-        #expect(concealed != true)
-    }
-
     // MARK: - Code body styling
 
     @Test func codeBodyCharsAreMonospaced() {

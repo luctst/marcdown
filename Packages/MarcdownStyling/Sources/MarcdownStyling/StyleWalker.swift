@@ -170,13 +170,11 @@ struct StyleWalker: @preconcurrency MarkupWalker {
         {
             openingEnd += 1
         }
-        // NOTE: Do NOT include the trailing `\n` in the opening fence range.
-        // If it's concealed, AppKit's `typingAttributes` at the start of the
-        // body line (cursor-1 = this `\n`) inherit `.marcdownConcealed`, and
-        // every char the user types is invisible until the cursor moves past
-        // a non-concealed neighbor. The `\n` still functions as the line
-        // terminator regardless of glyph concealment — line layout is driven
-        // by the character, not the glyph property.
+        // Include the `\n` itself if present, so the fence range covers the
+        // entire opening line.
+        if openingEnd < blockEnd {
+            openingEnd += 1
+        }
         let openingFenceRange = NSRange(
             location: blockStart,
             length: openingEnd - blockStart
