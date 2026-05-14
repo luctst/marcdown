@@ -16,7 +16,6 @@ Marcdown is built for markdown writers who want a distraction-free, keyboard-dri
 
 - **Plain text, local files** — notes live in `~/marcdown/` under your control; sync via iCloud Drive, Dropbox, Syncthing, or just `git`. No lock-in.
 - **Live markdown rendering** — as you type `# Heading` or `**bold**`, the text renders in place (WYSIWYG-ish; no formatting hotkeys needed).
-- **Markdown tables** — full table support, not just lists and basic text.
 - **Native macOS** — Swift 6, AppKit + SwiftUI; no Electron, no browser overhead. Fast, low-footprint.
 - **Keyboard-first UX** — global hotkey, panel overlay, all controls accessible via chords. No mouse required.
 
@@ -24,7 +23,7 @@ Marcdown is built for markdown writers who want a distraction-free, keyboard-dri
 
 **Working today** (released in slices):
 
-- Live markdown styling (headings, bold, italic, code blocks, blockquotes, tables, lists)
+- Live markdown styling (headings, bold, italic, code blocks, blockquotes, lists)
 - Floating panel with global hotkey (Cmd+Shift+Space, customizable)
 - Multi-note management (quick switcher, prev/next, 9-item recent history)
 - H1-driven auto-rename (Untitled N.md becomes "My Note.md" once you type a level-1 heading)
@@ -40,48 +39,7 @@ Marcdown is built for markdown writers who want a distraction-free, keyboard-dri
 
 ## Architecture
 
-Marcdown is built as a **macOS 15+ background-only app** in Swift 6 with strict concurrency. The UI layer is SwiftUI + AppKit; the core (model, IO, indexing) is pure Foundation, packaged as SPM libraries.
-
-```
-marcdowndev/
-├── App/                           # Main app target
-│   ├── Sources/
-│   │   ├── MarcdownApp.swift      # Entry point (@main, Settings scene)
-│   │   ├── AppDelegate.swift      # Background mode, global hotkey registration
-│   │   ├── PanelController.swift  # NSPanel lifecycle and toggling
-│   │   ├── PanelRootView.swift    # Root SwiftUI view (editor + overlays)
-│   │   ├── NotesStore.swift       # @MainActor, @Observable facade
-│   │   ├── NoteViewModel.swift    # Per-note editor state, debounced save
-│   │   ├── QuickSwitcher.swift    # Fuzzy-search note picker overlay
-│   │   ├── SettingsView.swift     # Hotkey rebinder UI
-│   │   └── Shortcuts.swift        # Global hotkey name definition
-│   └── Resources/
-│       ├── Info.plist
-│       └── Marcdown.entitlements
-├── Packages/
-│   ├── MarcdownCore/              # Pure Foundation model & IO
-│   │   ├── Sources/MarcdownCore/
-│   │   │   ├── Note.swift         # Model (id, body, modifiedAt, title extraction)
-│   │   │   ├── NoteStore.swift    # actor: load, save, loadOrCreate disk IO
-│   │   │   ├── NoteLocation.swift # Constants (~/marcdown/, scratch.md, etc.)
-│   │   │   └── NotesIndex.swift   # actor: file watcher, list, create, delete, rename
-│   │   └── Tests/MarcdownCoreTests/
-│   │       └── NoteTitleTests.swift
-│   ├── MarcdownStyling/           # Markdown → NSAttributedString
-│   │   ├── Sources/MarcdownStyling/
-│   │   │   ├── MarkdownStyler.swift      # @MainActor API (parse, walk, apply attributes)
-│   │   │   ├── StyleWalker.swift         # struct: MarkupWalker impl (mutating)
-│   │   │   ├── LineOffsetIndex.swift     # UTF-8 column → UTF-16 NSRange converter
-│   │   │   └── StylingTheme.swift        # Semantic NSColors (heading, bold, code, etc.)
-│   │   └── Tests/MarcdownStylingTests/
-│   │       ├── MarkdownStylerTests.swift
-│   │       └── LineOffsetIndexTests.swift
-│   └── MarcdownEditor/            # NSTextView + SwiftUI glue
-│       └── Sources/MarcdownEditor/
-│           ├── NoteEditorView.swift    # NSViewRepresentable (TextKit 1 stack)
-│           └── EditorTextView.swift    # NSTextView subclass, IME-aware restyle
-└── project.yml                    # xcodegen config
-```
+Marcdown is built as a **macOS 15+ background-only app** in Swift 6 with strict concurrency. The UI layer is SwiftUI + AppKit; the core (model, IO, indexing) is pure Foundation, packaged as four local SPM packages.
 
 ### Module breakdown
 
@@ -222,10 +180,11 @@ If any CI or release job fails, a summary message is posted to `#marcdown-ci` wi
 | ---------------------- | -------------------------------------------- |
 | **Cmd+N**              | New note                                     |
 | **Cmd+P**              | Quick switcher (fuzzy search)                |
-| **Cmd+Shift+⌫**        | Delete current note (with confirmation)      |
+| **Cmd+Shift+⌫**        | Delete current note                          |
 | **Cmd+Shift+[**        | Previous note                                |
 | **Cmd+Shift+]**        | Next note                                    |
 | **Cmd+1** to **Cmd+9** | Jump to recent (1 = most recent, 9 = oldest) |
+| **Cmd+K**              | Command Palette (Export, other actions)      |
 | **Cmd+,**              | Settings (hotkey rebinder)                   |
 | **Esc**                | Hide panel                                   |
 
@@ -288,16 +247,6 @@ The styler always applies a baseline set of attributes before walking the AST. A
 ### IME composition safety
 
 `NoteEditorView` checks `textView.hasMarkedText` before restyling. This prevents eating in-progress IME input (e.g., Japanese composition). Restyle resumes once composition is complete.
-
-## Project layout
-
-| Directory                     | Purpose                                                                                                                                      |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| **App/**                      | Main macOS application target (SwiftUI entry, AppKit panel, UI view models).                                                                 |
-| **Packages/MarcdownCore/**    | SPM package: Note model, disk IO (NoteStore actor), file indexing (NotesIndex actor). Pure Foundation, no UI deps.                           |
-| **Packages/MarcdownStyling/** | SPM package: Markdown parser wrapper, syntax highlighter (StyleWalker), UTF-8↔UTF-16 converter (LineOffsetIndex). Depends on swift-markdown. |
-| **Packages/MarcdownEditor/**  | SPM package: TextKit 1 wrapper (NoteEditorView, EditorTextView). Bridges Styling and Core.                                                   |
-| **project.yml**               | xcodegen config (replaces .pbxproj). Defines targets, packages, schemes, build settings.                                                     |
 
 ## Next steps
 
