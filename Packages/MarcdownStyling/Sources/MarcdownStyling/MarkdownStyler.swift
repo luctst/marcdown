@@ -15,7 +15,7 @@ public final class MarkdownStyler {
     public let theme: StylingTheme
     private let baseFont: NSFont
 
-    public init(theme: StylingTheme = .system, baseFont: NSFont = .systemFont(ofSize: 14)) {
+    public init(theme: StylingTheme = .system, baseFont: NSFont = NSFont(name: "AvenirNext-Regular", size: 15) ?? NSFont.systemFont(ofSize: 15)) {
         self.theme = theme
         self.baseFont = baseFont
     }

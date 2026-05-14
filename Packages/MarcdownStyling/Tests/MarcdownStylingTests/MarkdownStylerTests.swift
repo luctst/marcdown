@@ -28,7 +28,18 @@ struct MarkdownStylerTests {
         // Body should be plain base font.
         let bodyStart = ns.range(of: "Body text").location
         let bodyFont = attributed.attribute(.font, at: bodyStart, effectiveRange: nil) as? NSFont
-        #expect(bodyFont?.pointSize == 14)
+        #expect(bodyFont?.pointSize == 15)
+    }
+
+    @Test func defaultBaseFontIsAvenirNextAt15() {
+        let styler = MarkdownStyler()
+        let source = "Body text"
+        let attributed = styler.attributedString(for: source)
+
+        let font = attributed.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        #expect(font != nil)
+        #expect(font?.pointSize == 15)
+        #expect(font?.familyName?.contains("Avenir") == true)
     }
 
     @Test func strongAppliesBoldToInnerText() {
