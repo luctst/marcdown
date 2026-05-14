@@ -77,7 +77,7 @@ public struct NoteEditorView: NSViewRepresentable {
         textView.isContinuousSpellCheckingEnabled = false
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
-        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.font = NSFont(name: "AvenirNext-Regular", size: 15) ?? NSFont.systemFont(ofSize: 15)
         textView.textContainerInset = NSSize(width: 16, height: 16)
 
         let scrollView = NSScrollView()
