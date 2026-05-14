@@ -343,9 +343,7 @@ public struct NoteEditorView: NSViewRepresentable {
 
             let selection = textView.selectedRange()
             // The caret end is the active end for shift-extended moves.
-            let cursor = extend
-                ? (selection.location + selection.length)
-                : selection.location
+            let cursor = extend ? selection.location + selection.length : selection.location
             let lineStart = lineStartOffset(in: storage.string, cursor: cursor)
             if cursor <= lineStart { return false }
 
