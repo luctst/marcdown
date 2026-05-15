@@ -112,6 +112,7 @@ jobs:
             CODE_SIGN_IDENTITY="Developer ID Application" \
             CODE_SIGN_STYLE=Manual \
             OTHER_CODE_SIGN_FLAGS=--timestamp \
+            ENABLE_HARDENED_RUNTIME=YES \
             archive | xcbeautify
 
       - name: Export archive
@@ -130,6 +131,7 @@ jobs:
             <key>signingStyle</key><string>manual</string>
             <key>teamID</key><string>${APPLE_TEAM_ID}</string>
             <key>destination</key><string>export</string>
+            <key>enableHardenedRuntime</key><true/>
           </dict>
           </plist>
           EOF
