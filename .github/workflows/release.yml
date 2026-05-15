@@ -222,7 +222,26 @@ jobs:
           fi
           spctl --assess --type execute --verbose=4 "$APP" || true
 
-      - name: Notarize
+      - name: Build DMG
+        run: |
+          set -euo pipefail
+          mkdir -p build/dmg
+          create-dmg \
+            --no-internet-enable \
+            --volname "Marcdown $VERSION" \
+            --window-size 540 380 \
+            --icon "Marcdown.app" 140 190 \
+            --hide-extension "Marcdown.app" \
+            --app-drop-link 400 190 \
+            "build/dmg/Marcdown-$VERSION.dmg" \
+            "build/export/Marcdown.app"
+
+      - name: Sign DMG
+        run: |
+          set -euo pipefail
+          codesign --sign "Developer ID Application" --timestamp "build/dmg/Marcdown-$VERSION.dmg"
+
+      - name: Notarize DMG
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -231,9 +250,7 @@ jobs:
           set -euo pipefail
           set -o pipefail
 
-          ditto -c -k --keepParent build/export/Marcdown.app build/Marcdown.zip
-
-          xcrun notarytool submit build/Marcdown.zip \
+          xcrun notarytool submit "build/dmg/Marcdown-$VERSION.dmg" \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
@@ -253,29 +270,9 @@ jobs:
             exit 1
           fi
 
-      - name: Staple app
+      - name: Staple DMG
         run: |
           set -euo pipefail
-          xcrun stapler staple build/export/Marcdown.app
-
-      - name: Build DMG
-        run: |
-          set -euo pipefail
-          mkdir -p build/dmg
-          create-dmg \
-            --no-internet-enable \
-            --volname "Marcdown $VERSION" \
-            --window-size 540 380 \
-            --icon "Marcdown.app" 140 190 \
-            --hide-extension "Marcdown.app" \
-            --app-drop-link 400 190 \
-            "build/dmg/Marcdown-$VERSION.dmg" \
-            "build/export/Marcdown.app"
-
-      - name: Sign and staple DMG
-        run: |
-          set -euo pipefail
-          codesign --sign "Developer ID Application" --timestamp "build/dmg/Marcdown-$VERSION.dmg"
           xcrun stapler staple "build/dmg/Marcdown-$VERSION.dmg"
 
       - name: Compute SHA256
