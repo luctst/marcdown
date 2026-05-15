@@ -103,6 +103,12 @@ jobs:
         run: |
           set -euo pipefail
           set -o pipefail
+          # NOTE: project.yml sets CODE_SIGNING_ALLOWED=NO and
+          # CODE_SIGNING_REQUIRED=NO at the base level for local dev. We must
+          # override BOTH on the command line, otherwise xcodebuild silently
+          # skips codesign entirely and OTHER_CODE_SIGN_FLAGS (--options=runtime)
+          # never lands on the binary -- causing notarization to reject the
+          # build with "executable does not have the hardened runtime enabled".
           xcodebuild \
             -scheme Marcdown \
             -configuration Release \
@@ -111,6 +117,8 @@ jobs:
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CODE_SIGN_IDENTITY="Developer ID Application" \
             CODE_SIGN_STYLE=Manual \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
             OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime" \
             ENABLE_HARDENED_RUNTIME=YES \
             archive | xcbeautify
@@ -136,10 +144,83 @@ jobs:
           </plist>
           EOF
 
+          # Same override rationale as Archive step: defeat project.yml's
+          # CODE_SIGNING_ALLOWED=NO so the re-sign during export actually runs.
           xcodebuild -exportArchive \
             -archivePath build/Marcdown.xcarchive \
             -exportPath build/export \
-            -exportOptionsPlist ExportOptions.plist | xcbeautify
+            -exportOptionsPlist ExportOptions.plist \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES | xcbeautify
+
+      - name: Re-sign app with hardened runtime (belt-and-suspenders)
+        env:
+          ENTITLEMENTS_PATH: App/Resources/Marcdown.entitlements
+        run: |
+          set -euo pipefail
+          # Defense-in-depth: even with the CODE_SIGNING_ALLOWED overrides above,
+          # explicitly re-sign every Mach-O inside the .app bundle from the
+          # innermost frameworks/dylibs/helpers outward (bottom-up), each with
+          # --options=runtime --timestamp. We deliberately avoid --deep, which
+          # Apple has deprecated for distribution signing and which can apply
+          # the wrong entitlements to nested code.
+          APP="build/export/Marcdown.app"
+          IDENTITY="Developer ID Application"
+
+          # 1) Sign nested frameworks, dylibs, and bundles first (deepest paths
+          #    last so children are signed before their parent containers).
+          if [ -d "$APP/Contents/Frameworks" ]; then
+            find "$APP/Contents/Frameworks" \
+              \( -name "*.framework" -o -name "*.dylib" -o -name "*.bundle" \) \
+              -print0 | sort -rz | while IFS= read -r -d '' item; do
+                echo "Re-signing nested: $item"
+                codesign --force --sign "$IDENTITY" \
+                  --options=runtime --timestamp \
+                  "$item"
+              done
+          fi
+
+          # 2) Sign any auxiliary executables in Contents/MacOS that are not the
+          #    main app binary (XPC helpers, login items embedded as binaries).
+          MAIN_BINARY_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
+          if [ -d "$APP/Contents/MacOS" ]; then
+            find "$APP/Contents/MacOS" -type f ! -name "$MAIN_BINARY_NAME" \
+              -print0 | while IFS= read -r -d '' bin; do
+                echo "Re-signing helper binary: $bin"
+                codesign --force --sign "$IDENTITY" \
+                  --options=runtime --timestamp \
+                  "$bin"
+              done
+          fi
+
+          # 3) Sign nested .app bundles (e.g. login-item apps), if any.
+          find "$APP/Contents" -type d -name "*.app" -not -path "$APP" \
+            -print0 | while IFS= read -r -d '' nested_app; do
+              echo "Re-signing nested app: $nested_app"
+              codesign --force --sign "$IDENTITY" \
+                --options=runtime --timestamp \
+                --entitlements "$ENTITLEMENTS_PATH" \
+                "$nested_app"
+            done
+
+          # 4) Finally, re-sign the outer app bundle itself with the project's
+          #    entitlements file. This is the binary notarization complained
+          #    about, so this step is the load-bearing one.
+          echo "Re-signing main app bundle: $APP"
+          codesign --force --sign "$IDENTITY" \
+            --options=runtime --timestamp \
+            --entitlements "$ENTITLEMENTS_PATH" \
+            "$APP"
+
+          # 5) Verify hardened runtime is actually set on the main executable.
+          echo "Verifying signature..."
+          codesign --verify --strict --verbose=4 "$APP"
+          codesign --display --verbose=4 "$APP" 2>&1 | tee /tmp/codesign-out.txt
+          if ! grep -q "flags=.*runtime" /tmp/codesign-out.txt; then
+            echo "ERROR: hardened runtime flag missing on $APP after re-sign" >&2
+            exit 1
+          fi
+          spctl --assess --type execute --verbose=4 "$APP" || true
 
       - name: Notarize
         env:
