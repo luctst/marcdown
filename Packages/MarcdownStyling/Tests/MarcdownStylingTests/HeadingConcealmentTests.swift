@@ -13,6 +13,8 @@ import Testing
 @Suite("Heading concealment")
 struct HeadingConcealmentTests {
 
+    private let baseFont = NSFont.systemFont(ofSize: 14)
+
     // MARK: - Bare hashes (no trailing space) — must render as plain text
 
     @Test func bareHashIsNotConcealedAndKeepsBaseFont() {
@@ -25,7 +27,7 @@ struct HeadingConcealmentTests {
         #expect(color != NSColor.clear)
 
         let font = storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
-        #expect(font?.pointSize == 14)
+        #expect(font?.pointSize == baseFont.pointSize)
     }
 
     @Test func bareDoubleHashIsNotConcealedAndKeepsBaseFont() {
@@ -37,7 +39,7 @@ struct HeadingConcealmentTests {
             let color = storage.attribute(.foregroundColor, at: idx, effectiveRange: nil) as? NSColor
             #expect(color != NSColor.clear, "char \(idx) should not be clear-painted")
             let font = storage.attribute(.font, at: idx, effectiveRange: nil) as? NSFont
-            #expect(font?.pointSize == 14, "char \(idx) should keep base font size")
+            #expect(font?.pointSize == baseFont.pointSize, "char \(idx) should keep base font size")
         }
     }
 
@@ -50,7 +52,7 @@ struct HeadingConcealmentTests {
             let color = storage.attribute(.foregroundColor, at: idx, effectiveRange: nil) as? NSColor
             #expect(color != NSColor.clear, "char \(idx) should not be clear-painted")
             let font = storage.attribute(.font, at: idx, effectiveRange: nil) as? NSFont
-            #expect(font?.pointSize == 14, "char \(idx) should keep base font size")
+            #expect(font?.pointSize == baseFont.pointSize, "char \(idx) should keep base font size")
         }
     }
 
@@ -68,7 +70,7 @@ struct HeadingConcealmentTests {
         #expect(color != NSColor.clear)
 
         let font = storage.attribute(.font, at: hashIndex, effectiveRange: nil) as? NSFont
-        #expect(font?.pointSize == 14)
+        #expect(font?.pointSize == baseFont.pointSize)
     }
 
     // MARK: - Empty heading with trailing space — clear-paint preserved
@@ -101,7 +103,7 @@ struct HeadingConcealmentTests {
 
         // Body font is larger than base.
         let bodyFont = storage.attribute(.font, at: 2, effectiveRange: nil) as? NSFont
-        #expect((bodyFont?.pointSize ?? 0) > 14)
+        #expect((bodyFont?.pointSize ?? 0) > baseFont.pointSize)
     }
 
     @Test func h2WithBodyConcealsMarkerAndBumpsFont() {
@@ -113,7 +115,7 @@ struct HeadingConcealmentTests {
         }
 
         let bodyFont = storage.attribute(.font, at: 3, effectiveRange: nil) as? NSFont
-        #expect((bodyFont?.pointSize ?? 0) > 14)
+        #expect((bodyFont?.pointSize ?? 0) > baseFont.pointSize)
     }
 
     @Test func h3WithBodyConcealsMarkerAndBumpsFont() {
@@ -125,7 +127,7 @@ struct HeadingConcealmentTests {
         }
 
         let bodyFont = storage.attribute(.font, at: 4, effectiveRange: nil) as? NSFont
-        #expect((bodyFont?.pointSize ?? 0) > 14)
+        #expect((bodyFont?.pointSize ?? 0) > baseFont.pointSize)
     }
 
     /// Heading levels must be visually distinct: H1 > H2 > H3 > base. If any
@@ -141,14 +143,14 @@ struct HeadingConcealmentTests {
 
         #expect(h1Size > h2Size)
         #expect(h2Size > h3Size)
-        #expect(h3Size > 14)
+        #expect(h3Size > baseFont.pointSize)
     }
 
     // MARK: - Helpers
 
     private func styledStorage(for source: String) -> NSTextStorage {
         let storage = NSTextStorage(string: source)
-        let styler = MarkdownStyler()
+        let styler = MarkdownStyler(baseFont: baseFont)
         styler.restyle(storage: storage, source: source)
         return storage
     }
