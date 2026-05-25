@@ -36,6 +36,17 @@ struct StyleWalker: @preconcurrency MarkupWalker {
             descendInto(heading)
             return
         }
+
+        // Bare hashes with no trailing space (e.g. just `#`) are not visually
+        // a heading yet — keep them plain so the user sees the character they
+        // just typed. The parser still classifies them as an empty H1, but we
+        // refuse to style until a trailing space confirms heading intent.
+        let atxMarker = atxHeadingMarker(in: range)
+        if let marker = atxMarker, !marker.hasTrailingSpace {
+            descendInto(heading)
+            return
+        }
+
         let size = headingSize(for: heading.level)
         let font = NSFontManager.shared
             .convert(.systemFont(ofSize: size, weight: .bold), toHaveTrait: .boldFontMask)
@@ -43,20 +54,22 @@ struct StyleWalker: @preconcurrency MarkupWalker {
 
         // ATX heading marker concealment — only for ATX (`# `, `## ` …).
         // Setext headings (`====` / `----` underlines) report a multi-line
-        // range whose first character is not `#`; the prefix scan below will
-        // simply find no `#` and skip.
-        if let markerRange = atxHeadingMarkerRange(in: range) {
+        // range whose first character is not `#`; the prefix scan above will
+        // simply find no `#` and return nil.
+        if let marker = atxMarker {
+            let markerRange = marker.range
             if markerRange.length < range.length {
                 // Non-empty heading: body text follows the marker, the line has
                 // a visible width so concealment is safe.
                 applyConceal(to: markerRange)
             } else {
-                // Empty heading (`#` / `# ` with no body). Concealment via .null
-                // glyphs would collapse the line to zero width — the visible cursor
-                // would snap up to the previous line while the user is typing the
-                // marker. Clear-paint + monospaced keeps the marker invisible but
-                // gives the line a real advance so the cursor stays put. Same
-                // treatment as the bullet / ordered complete markers in
+                // Empty heading with trailing space (`# ` with no body).
+                // Concealment via .null glyphs would collapse the line to zero
+                // width — the visible cursor would snap up to the previous
+                // line while the user is typing the marker. Clear-paint +
+                // monospaced keeps the marker invisible but gives the line a
+                // real advance so the cursor stays put. Same treatment as the
+                // bullet / ordered complete markers in
                 // `MarkdownStyler.applyListAttributes`.
                 let monospaced = NSFont.monospacedSystemFont(
                     ofSize: baseFont.pointSize,
@@ -74,13 +87,23 @@ struct StyleWalker: @preconcurrency MarkupWalker {
         descendInto(heading)
     }
 
+    /// Result of scanning a heading range for its ATX marker.
+    private struct AtxMarker {
+        /// Range covering the `#`s plus the trailing space/tab if present.
+        let range: NSRange
+        /// True if a space or tab follows the hashes (heading intent
+        /// confirmed). False for bare `###` with no trailing whitespace or
+        /// end-of-line yet — still a parser-classified heading, but visually
+        /// indistinguishable from plain text until the user commits.
+        let hasTrailingSpace: Bool
+    }
+
     /// Scans the leading characters of a heading's storage range for an ATX
-    /// marker: 1-6 `#` characters optionally followed by one space/tab (or
-    /// end-of-line/end-of-storage for an empty heading like `#\n`).
+    /// marker: 1-6 `#` characters optionally followed by one space/tab.
     ///
     /// Returns `nil` if no valid ATX marker is present (e.g. setext heading
     /// or somehow malformed input).
-    private func atxHeadingMarkerRange(in headingRange: NSRange) -> NSRange? {
+    private func atxHeadingMarker(in headingRange: NSRange) -> AtxMarker? {
         let storageString = storage.string as NSString
         let upper = headingRange.location + headingRange.length
         guard upper <= storageString.length else { return nil }
@@ -97,17 +120,20 @@ struct StyleWalker: @preconcurrency MarkupWalker {
         guard hashCount >= 1 else { return nil }
 
         // Per CommonMark, ATX hashes must be followed by a space, tab, or end
-        // of line — otherwise it's not a heading marker. swift-markdown's
-        // parser already enforced "this is a heading", so end-of-storage and
-        // newline are valid terminators here too.
+        // of line. swift-markdown's parser already enforced "this is a
+        // heading", so end-of-storage and newline are valid terminators — but
+        // those cases are "bare hashes, no trailing space" which the caller
+        // treats as visually plain.
         var markerLength = hashCount
+        var hasTrailingSpace = false
         if probe < upper {
             let trailing = storageString.character(at: probe)
             // 0x20 space, 0x09 tab, 0x0A newline, 0x0D CR
             if trailing == 0x20 || trailing == 0x09 {
                 markerLength += 1
+                hasTrailingSpace = true
             } else if trailing == 0x0A || trailing == 0x0D {
-                // Empty heading: marker is just the hashes.
+                // Empty heading, no trailing space yet.
             } else {
                 // Not a valid ATX marker — bail. Shouldn't happen given the
                 // parser said "heading", but be defensive.
@@ -115,7 +141,10 @@ struct StyleWalker: @preconcurrency MarkupWalker {
             }
         }
 
-        return NSRange(location: headingRange.location, length: markerLength)
+        return AtxMarker(
+            range: NSRange(location: headingRange.location, length: markerLength),
+            hasTrailingSpace: hasTrailingSpace
+        )
     }
 
     mutating func visitBlockQuote(_ blockQuote: BlockQuote) {
