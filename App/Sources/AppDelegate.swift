@@ -40,16 +40,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "pencil", accessibilityDescription: "Marcdown")
+        // SF Symbols default to a filled black render, which disappears against
+        // the dark menu bar. Marking the image as a template lets AppKit tint it
+        // to match the current menu bar appearance and highlight states.
+        let icon = NSImage(systemSymbolName: "pencil", accessibilityDescription: "Marcdown")
+        icon?.isTemplate = true
+        item.button?.image = icon
 
         let menu = NSMenu()
 
+        // The shortcut is shown as a title hint rather than a real keyEquivalent:
+        // the global `KeyboardShortcuts` hotkey owns ⌘⇧Space, and we don't want
+        // the menu item competing for that chord when the status menu is open.
         let openItem = NSMenuItem(
-            title: "Open Marcdown",
+            title: "Open Marcdown  ⌘⇧Space",
             action: #selector(openMarcdown),
-            keyEquivalent: " "
+            keyEquivalent: ""
         )
-        openItem.keyEquivalentModifierMask = [.command, .shift]
         openItem.target = self
         menu.addItem(openItem)
 
