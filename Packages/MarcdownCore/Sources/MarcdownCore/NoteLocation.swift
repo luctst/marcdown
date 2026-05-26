@@ -17,8 +17,10 @@ public enum NoteLocation {
     public static let scratchPlaceholder: String = """
         # Welcome to Marcdown
 
-        This is your scratch note. Anything you type here is saved automatically.
+        Press **⌘⇧Space** anywhere to bring this window back.
 
-        Press the global hotkey to toggle this panel. Press Esc to hide it.
+        Your notes are saved as plain `.md` files in `~/marcdown`.
+
+        Edit this note, delete it, or start a new one — it's yours.
         """
 }
