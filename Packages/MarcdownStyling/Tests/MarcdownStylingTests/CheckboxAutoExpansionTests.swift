@@ -9,28 +9,28 @@ struct CheckboxAutoExpansionTests {
 
     @Test func emptyLinePlusBracketExpands() {
         #expect(
-            CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "[")
+            CheckboxAutoExpansion.expansionOnTypingSpace(beforeCursorOnLine: "[]")
                 == "- [ ] "
         )
     }
 
     @Test func spaceIndentPreserved() {
         #expect(
-            CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "  [")
+            CheckboxAutoExpansion.expansionOnTypingSpace(beforeCursorOnLine: "  []")
                 == "  - [ ] "
         )
     }
 
     @Test func tabIndentPreserved() {
         #expect(
-            CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "\t[")
+            CheckboxAutoExpansion.expansionOnTypingSpace(beforeCursorOnLine: "\t[]")
                 == "\t- [ ] "
         )
     }
 
     @Test func mixedIndentPreserved() {
         #expect(
-            CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: " \t [")
+            CheckboxAutoExpansion.expansionOnTypingSpace(beforeCursorOnLine: " \t []")
                 == " \t - [ ] "
         )
     }
@@ -39,21 +39,21 @@ struct CheckboxAutoExpansionTests {
 
     @Test func noBracketReturnsNil() {
         #expect(
-            CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "")
+            CheckboxAutoExpansion.expansionOnTypingSpace(beforeCursorOnLine: "")
                 == nil
         )
     }
 
     @Test func contentBeforeBracketReturnsNil() {
         #expect(
-            CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "foo[")
+            CheckboxAutoExpansion.expansionOnTypingSpace(beforeCursorOnLine: "foo[")
                 == nil
         )
     }
 
     @Test func bracketWithExtraReturnsNil() {
         #expect(
-            CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "[a")
+            CheckboxAutoExpansion.expansionOnTypingSpace(beforeCursorOnLine: "[a")
                 == nil
         )
     }
@@ -61,7 +61,25 @@ struct CheckboxAutoExpansionTests {
     @Test func existingDashBracketReturnsNil() {
         // Not the autoexpand trigger; this is a partial state handled by the scanner.
         #expect(
-            CheckboxAutoExpansion.expansionOnTypingCloseBracket(beforeCursorOnLine: "- [")
+            CheckboxAutoExpansion.expansionOnTypingSpace(beforeCursorOnLine: "- [")
+                == nil
+        )
+    }
+
+    // MARK: - Regressions
+
+    @Test func typingCloseBracketAloneDoesNotExpand() {
+        // Regression: the old trigger (`^\s*\[$`) must no longer fire on a lone `[`.
+        #expect(
+            CheckboxAutoExpansion.expansionOnTypingSpace(beforeCursorOnLine: "[")
+                == nil
+        )
+    }
+
+    @Test func linkEmptyLabelBracketsDoNotExpand() {
+        // Regression: `[](` is the start of a Markdown link, not a checkbox.
+        #expect(
+            CheckboxAutoExpansion.expansionOnTypingSpace(beforeCursorOnLine: "[](")
                 == nil
         )
     }

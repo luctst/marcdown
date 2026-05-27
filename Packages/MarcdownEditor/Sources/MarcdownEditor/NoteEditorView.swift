@@ -474,7 +474,7 @@ public struct NoteEditorView: NSViewRepresentable {
             guard
                 let storage = textView.textStorage,
                 let replacement = replacementString,
-                replacement == "]",
+                replacement == " ",
                 affectedCharRange.length == 0,
                 !textView.hasMarkedText()
             else { return true }
@@ -499,7 +499,7 @@ public struct NoteEditorView: NSViewRepresentable {
             }
 
             guard
-                let expansion = CheckboxAutoExpansion.expansionOnTypingCloseBracket(
+                let expansion = CheckboxAutoExpansion.expansionOnTypingSpace(
                     beforeCursorOnLine: prefix
                 )
             else { return true }
@@ -559,12 +559,31 @@ private final class FocusOnAttachTextView: NSTextView {
     /// Called when the user clicks anywhere inside a `[X]` marker. Argument
     /// is the character index of the click.
     var checkboxClickHandler: ((Int) -> Void)?
+    /// Local monitor that re-invalidates cursor rects whenever modifier flags
+    /// change, so the `.pointingHand` cursor appears/disappears over link
+    /// labels as the user presses or releases the Command key.
+    private var flagsMonitor: Any?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard !didClaimFocus, let window else { return }
         didClaimFocus = true
         window.makeFirstResponder(self)
+        if flagsMonitor == nil {
+            flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+                guard let self else { return event }
+                self.window?.invalidateCursorRects(for: self)
+                return event
+            }
+        }
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil, let monitor = flagsMonitor {
+            NSEvent.removeMonitor(monitor)
+            flagsMonitor = nil
+        }
+        super.viewWillMove(toWindow: newWindow)
     }
 
     /// Installs `.pointingHand` cursor rects over every checkbox marker so the
@@ -601,6 +620,23 @@ private final class FocusOnAttachTextView: NSTextView {
             )
             addCursorRect(rect, cursor: .pointingHand)
         }
+
+        // When Cmd is held, treat link labels as clickable: show a
+        // `.pointingHand` cursor over each `.marcdownLink` run. The flag-change
+        // monitor in `viewDidMoveToWindow` triggers a fresh cursor-rect pass
+        // whenever Cmd is pressed or released, so the cursor reflects the
+        // current modifier state without requiring a mouse move.
+        let cmdHeld = NSEvent.modifierFlags.contains(.command)
+        if cmdHeld, let textContainer {
+            storage.enumerateAttribute(.marcdownLink, in: fullRange, options: []) { value, charRange, _ in
+                guard let dest = value as? String, !dest.isEmpty else { return }
+                let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+                guard glyphRange.length > 0 else { return }
+                let bounding = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+                let rect = bounding.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+                addCursorRect(rect, cursor: .pointingHand)
+            }
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -626,6 +662,20 @@ private final class FocusOnAttachTextView: NSTextView {
         guard charIndex >= 0, charIndex < storage.length else {
             super.mouseDown(with: event)
             return
+        }
+
+        // Cmd+click on a styled link label opens the destination URL in the
+        // user's default handler, mirroring the convention used by Xcode,
+        // Obsidian, and other markdown editors. Falls through to the default
+        // text-view behaviour when Cmd is held but the click misses a link.
+        if event.modifierFlags.contains(.command) {
+            if let destination = storage.attribute(.marcdownLink, at: charIndex, effectiveRange: nil) as? String,
+                !destination.isEmpty,
+                let url = URL(string: destination)
+            {
+                NSWorkspace.shared.open(url)
+                return
+            }
         }
 
         let value = storage.attribute(.marcdownCheckbox, at: charIndex, effectiveRange: nil)
