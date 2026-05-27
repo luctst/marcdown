@@ -32,6 +32,13 @@ extension NSAttributedString.Key {
     /// editor's custom layout manager to paint a single rounded container
     /// behind the block. Inline code spans are NOT tagged.
     public static let marcdownCodeBlock = NSAttributedString.Key("marcdownCodeBlock")
+
+    /// Tags the label-text range of an inline link — the visible characters
+    /// between `[` and `]` in `[text](url)`. Value is a `String` carrying
+    /// the destination URL (may be empty for `[text]()`). Written
+    /// exclusively by `StyleWalker.visitLink`; read by the editor's click
+    /// handler in `mouseDown` to open the URL on Cmd+click.
+    public static let marcdownLink = NSAttributedString.Key("marcdownLink")
 }
 
 /// Kind of plain list marker tagged by the list-scanner pass.

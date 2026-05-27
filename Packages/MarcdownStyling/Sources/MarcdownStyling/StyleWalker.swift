@@ -378,17 +378,72 @@ struct StyleWalker: @preconcurrency MarkupWalker {
     }
 
     mutating func visitLink(_ link: Link) {
-        guard let range = index.nsRange(link.range), range.length > 0 else {
+        guard let nodeRange = index.nsRange(link.range), nodeRange.length > 0 else {
             descendInto(link)
             return
         }
-        addAttributes(
-            [
-                .foregroundColor: theme.accent,
-                .underlineStyle: NSUnderlineStyle.single.rawValue,
-            ],
-            range: range
-        )
+
+        // A well-formed inline link is `[label](destination)`. Locate the
+        // `](` that separates label from destination so we can style the
+        // label and conceal the surrounding syntax independently. Reference
+        // / autolink / malformed shapes fall through to the legacy
+        // accent+underline treatment over the full range.
+        let storageString = storage.string as NSString
+        let upper = min(nodeRange.location + nodeRange.length, storageString.length)
+        let labelStart = nodeRange.location + 1
+        var bracketIndex: Int? = nil
+        if labelStart <= upper {
+            var probe = labelStart
+            // Need room for both `]` and `(` so stop one short of upper.
+            while probe < upper - 1 {
+                // 0x5D == ']', 0x28 == '('
+                if storageString.character(at: probe) == 0x5D,
+                    storageString.character(at: probe + 1) == 0x28
+                {
+                    bracketIndex = probe
+                    break
+                }
+                probe += 1
+            }
+        }
+
+        guard let bracket = bracketIndex else {
+            // Fallback: malformed shape (reference link, autolink, etc.).
+            addAttributes(
+                [
+                    .foregroundColor: theme.accent,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue,
+                ],
+                range: nodeRange
+            )
+            descendInto(link)
+            return
+        }
+
+        // Label spans `[` (exclusive) up to `]` (exclusive). May be empty
+        // for `[](url)`.
+        let labelRange = NSRange(location: labelStart, length: bracket - labelStart)
+        if labelRange.length > 0 {
+            addAttributes(
+                [
+                    .foregroundColor: theme.accent,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue,
+                    .marcdownLink: link.destination ?? "",
+                ],
+                range: labelRange
+            )
+        }
+
+        // Opening `[`.
+        applyConceal(to: NSRange(location: nodeRange.location, length: 1))
+
+        // Trailing `](destination)` runs from `]` to the end of the node.
+        let tailLocation = bracket
+        let tailLength = (nodeRange.location + nodeRange.length) - tailLocation
+        if tailLength > 0 {
+            applyConceal(to: NSRange(location: tailLocation, length: tailLength))
+        }
+
         descendInto(link)
     }
 
