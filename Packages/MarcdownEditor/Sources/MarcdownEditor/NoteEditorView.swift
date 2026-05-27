@@ -670,8 +670,9 @@ private final class FocusOnAttachTextView: NSTextView {
         // text-view behaviour when Cmd is held but the click misses a link.
         if event.modifierFlags.contains(.command) {
             if let destination = storage.attribute(.marcdownLink, at: charIndex, effectiveRange: nil) as? String,
-               !destination.isEmpty,
-               let url = URL(string: destination) {
+                !destination.isEmpty,
+                let url = URL(string: destination)
+            {
                 NSWorkspace.shared.open(url)
                 return
             }
