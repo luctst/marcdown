@@ -1,10 +1,12 @@
 import AppKit
 import KeyboardShortcuts
 import MarcdownCore
+import MarcdownLaunchKit
 import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    let launchAtLoginController = LaunchAtLoginController()
     private var panelController: PanelController?
     // Retained for the app's lifetime — `NSStatusBar` does not keep a strong
     // reference to the status item, so dropping this property would remove
@@ -30,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if isFirstLaunch(defaults: defaults) {
             markLaunched(defaults: defaults)
             controller.show()
+            launchAtLoginController.registerOnFirstLaunchSilently()
         }
     }
 

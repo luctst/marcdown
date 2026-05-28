@@ -32,6 +32,8 @@ packages:
     path: Packages/MarcdownEditor
   MarcdownStyling:
     path: Packages/MarcdownStyling
+  MarcdownLaunchKit:
+    path: Packages/MarcdownLaunchKit
 
 targets:
   Marcdown:
@@ -65,6 +67,8 @@ targets:
         product: MarcdownCore
       - package: MarcdownEditor
         product: MarcdownEditor
+      - package: MarcdownLaunchKit
+        product: MarcdownLaunchKit
     scheme:
       testTargets:
         - MarcdownAppTests
