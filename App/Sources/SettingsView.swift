@@ -23,10 +23,12 @@ private struct GeneralTab: View {
 
     var body: some View {
         Form {
-            Toggle("Launch at Login", isOn: Binding(
-                get: { launchController.state == .enabled },
-                set: { launchController.setEnabled($0) }
-            ))
+            Toggle(
+                "Launch at Login",
+                isOn: Binding(
+                    get: { launchController.state == .enabled },
+                    set: { launchController.setEnabled($0) }
+                ))
         }
         .formStyle(.grouped)
         .padding()
