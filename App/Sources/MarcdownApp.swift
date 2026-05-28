@@ -1,3 +1,4 @@
+import MarcdownLaunchKit
 import SwiftUI
 
 @main
@@ -9,6 +10,7 @@ struct MarcdownApp: App {
         // only standard SwiftUI scene we expose.
         Settings {
             SettingsView()
+                .environment(appDelegate.launchAtLoginController)
         }
     }
 }
