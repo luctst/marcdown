@@ -172,7 +172,11 @@ public struct NoteEditorView: NSViewRepresentable {
 
         func restyle() {
             guard let storage else { return }
-            styler.restyle(storage: storage, source: storage.string)
+            styler.restyle(
+                storage: storage,
+                source: storage.string,
+                focusLine: currentFocusLine()
+            )
         }
 
         public func textDidChange(_ notification: Notification) {
@@ -189,12 +193,60 @@ public struct NoteEditorView: NSViewRepresentable {
             // Restyle first so the attributed buffer is up to date, then
             // propagate the plain string to the binding for the view model's
             // debounced save to pick up.
-            styler.restyle(storage: storage, source: storage.string)
+            styler.restyle(
+                storage: storage,
+                source: storage.string,
+                focusLine: currentFocusLine()
+            )
             text.wrappedValue = storage.string
             // Checkbox markers may have been added/removed by this edit;
             // refresh the pointing-hand hover rects so the cursor tracks
             // their current positions.
             textView.window?.invalidateCursorRects(for: textView)
+        }
+
+        public func textViewDidChangeSelection(_ notification: Notification) {
+            guard
+                let textView = notification.object as? NSTextView,
+                let storage = textView.textStorage
+            else { return }
+            // Skip restyle while the user is composing IME — the marked text
+            // is transient and styling would eat it.
+            if textView.hasMarkedText() { return }
+            // Focus-line reveal: restyle so the previously-focused line
+            // re-conceals and the newly-focused line reveals.
+            styler.restyle(
+                storage: storage,
+                source: storage.string,
+                focusLine: currentFocusLine()
+            )
+        }
+
+        /// Compute a `FocusLine` for the current selection in the active
+        /// text view. Multi-line selections currently focus only the line
+        /// containing the active end (caret). A single caret returns its
+        /// containing line.
+        private func currentFocusLine() -> FocusLine? {
+            guard let textView else { return nil }
+            guard let storage = textView.textStorage else { return nil }
+            let selection = textView.selectedRange()
+            // For a selection, the "active end" is the caret — use `location`
+            // for a simple caret and `location + length` (or `location`) for
+            // an extended selection. Picking `location` matches what most
+            // users perceive as the cursor.
+            let cursor = selection.location
+            let buffer = storage.string as NSString
+            let upper = buffer.length
+            guard cursor >= 0, cursor <= upper else { return nil }
+            var lineStart = cursor
+            while lineStart > 0, buffer.character(at: lineStart - 1) != 0x0A {
+                lineStart -= 1
+            }
+            var lineEnd = cursor
+            while lineEnd < upper, buffer.character(at: lineEnd) != 0x0A {
+                lineEnd += 1
+            }
+            return FocusLine(lineStart: lineStart, lineLength: lineEnd - lineStart)
         }
 
         // MARK: - Task list keystroke handling
@@ -205,6 +257,15 @@ public struct NoteEditorView: NSViewRepresentable {
         ) -> Bool {
             if selector == #selector(NSResponder.insertNewline(_:)) {
                 return handleInsertNewline(in: textView)
+            }
+            if selector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)) {
+                return handleShiftReturn(in: textView)
+            }
+            if selector == #selector(NSResponder.insertTab(_:)) {
+                return handleInsertTab(in: textView)
+            }
+            if selector == #selector(NSResponder.insertBacktab(_:)) {
+                return handleInsertBacktab(in: textView)
             }
             if selector == #selector(NSResponder.deleteBackward(_:)) {
                 return handleDeleteBackward(in: textView)
@@ -221,7 +282,164 @@ public struct NoteEditorView: NSViewRepresentable {
             if selector == #selector(NSResponder.moveToBeginningOfLineAndModifySelection(_:)) {
                 return handleMoveToBeginningOfLine(in: textView, extend: true)
             }
+            if selector == #selector(NSResponder.moveLeft(_:)) {
+                return handleArrow(in: textView, direction: .left)
+            }
+            if selector == #selector(NSResponder.moveRight(_:)) {
+                return handleArrow(in: textView, direction: .right)
+            }
             return false
+        }
+
+        // MARK: - Tab / Shift-Tab / Shift-Return
+
+        private func handleInsertTab(in textView: NSTextView) -> Bool {
+            guard let storage = textView.textStorage else { return false }
+            if textView.hasMarkedText() { return false }
+            let selection = textView.selectedRange()
+            // Selection-based indent (multiple lines) — TODO. For now, only
+            // handle the caret case; with a selection, fall through.
+            if selection.length > 0 { return false }
+            let cursor = selection.location
+            switch ListIndentation.indentOutcome(buffer: storage.string, cursorOffset: cursor) {
+            case .noOp:
+                return false
+            case .replace(let range, let replacement, let cursorOffsetInBuffer):
+                guard textView.shouldChangeText(in: range, replacementString: replacement) else {
+                    return false
+                }
+                textView.undoManager?.setActionName("Indent List Item")
+                storage.replaceCharacters(in: range, with: replacement)
+                textView.didChangeText()
+                textView.setSelectedRange(NSRange(location: cursorOffsetInBuffer, length: 0))
+                // If the line is an ordered list item, the depth change may
+                // require renumbering both the new and old depths.
+                runRenumberPass(in: textView, around: cursorOffsetInBuffer)
+                return true
+            }
+        }
+
+        private func handleInsertBacktab(in textView: NSTextView) -> Bool {
+            guard let storage = textView.textStorage else { return false }
+            if textView.hasMarkedText() { return false }
+            let selection = textView.selectedRange()
+            if selection.length > 0 { return false }
+            let cursor = selection.location
+            switch ListIndentation.outdentOutcome(buffer: storage.string, cursorOffset: cursor) {
+            case .noOp:
+                return false
+            case .replace(let range, let replacement, let cursorOffsetInBuffer):
+                guard textView.shouldChangeText(in: range, replacementString: replacement) else {
+                    return false
+                }
+                textView.undoManager?.setActionName("Outdent List Item")
+                storage.replaceCharacters(in: range, with: replacement)
+                textView.didChangeText()
+                textView.setSelectedRange(NSRange(location: cursorOffsetInBuffer, length: 0))
+                runRenumberPass(in: textView, around: cursorOffsetInBuffer)
+                return true
+            }
+        }
+
+        /// Shift+Return: insert a plain `\n` without any block continuation.
+        /// Spec §4.10 / §5.7 / §9.5.
+        private func handleShiftReturn(in textView: NSTextView) -> Bool {
+            guard let storage = textView.textStorage else { return false }
+            if textView.hasMarkedText() { return false }
+            let selection = textView.selectedRange()
+            let range = selection
+            guard textView.shouldChangeText(in: range, replacementString: "\n") else {
+                return false
+            }
+            textView.undoManager?.setActionName("Insert Newline")
+            storage.replaceCharacters(in: range, with: "\n")
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: range.location + 1, length: 0))
+            return true
+        }
+
+        // MARK: - Concealed-run arrow navigation
+
+        private enum ArrowDirection { case left, right }
+
+        /// If the character immediately adjacent (in the motion direction)
+        /// carries `.marcdownConcealed`, jump the entire concealed run in
+        /// one motion. Otherwise return `false` so AppKit's default single-
+        /// character motion runs (Thomas §1c).
+        private func handleArrow(in textView: NSTextView, direction: ArrowDirection) -> Bool {
+            guard let storage = textView.textStorage else { return false }
+            if textView.hasMarkedText() { return false }
+            let selection = textView.selectedRange()
+            if selection.length > 0 { return false }
+            let cursor = selection.location
+            let length = storage.length
+
+            // Use the logical-concealment attribute (mirrored by the styler)
+            // so the jump still triggers when the focused line has its
+            // visible concealment stripped by the reveal pass.
+            switch direction {
+            case .right:
+                guard cursor < length else { return false }
+                guard
+                    let flag = storage.attribute(.marcdownConcealedLogical, at: cursor, effectiveRange: nil) as? Bool,
+                    flag
+                else { return false }
+                var effective = NSRange(location: 0, length: 0)
+                _ = storage.attribute(
+                    .marcdownConcealedLogical,
+                    at: cursor,
+                    longestEffectiveRange: &effective,
+                    in: NSRange(location: 0, length: length)
+                )
+                let target = effective.location + effective.length
+                textView.setSelectedRange(NSRange(location: target, length: 0))
+                return true
+            case .left:
+                guard cursor > 0 else { return false }
+                let probe = cursor - 1
+                guard
+                    let flag = storage.attribute(.marcdownConcealedLogical, at: probe, effectiveRange: nil) as? Bool,
+                    flag
+                else { return false }
+                var effective = NSRange(location: 0, length: 0)
+                _ = storage.attribute(
+                    .marcdownConcealedLogical,
+                    at: probe,
+                    longestEffectiveRange: &effective,
+                    in: NSRange(location: 0, length: length)
+                )
+                let target = effective.location
+                textView.setSelectedRange(NSRange(location: target, length: 0))
+                return true
+            }
+        }
+
+        // MARK: - Renumber pass
+
+        /// Run `OrderedListRenumber.renumberRun` on the line containing
+        /// `cursor`. If the run is rewritten, apply the diff to storage and
+        /// adjust the cursor. Safe to call after every list-affecting edit;
+        /// non-ordered lines / single-item runs are `.noOp`.
+        private func runRenumberPass(in textView: NSTextView, around cursor: Int) {
+            guard let storage = textView.textStorage else { return }
+            let buffer = storage.string
+            let outcome = OrderedListRenumber.renumberRun(
+                buffer: buffer,
+                anchorOffset: cursor,
+                cursorOffset: cursor
+            )
+            switch outcome {
+            case .noOp:
+                return
+            case .rewrite(let newBuffer, let newCursorOffset):
+                let fullRange = NSRange(location: 0, length: storage.length)
+                guard textView.shouldChangeText(in: fullRange, replacementString: newBuffer) else {
+                    return
+                }
+                storage.replaceCharacters(in: fullRange, with: newBuffer)
+                textView.didChangeText()
+                textView.setSelectedRange(NSRange(location: newCursorOffset, length: 0))
+            }
         }
 
         // MARK: - Line-scoped navigation/delete
@@ -312,9 +530,11 @@ public struct NoteEditorView: NSViewRepresentable {
             return true
         }
 
-        /// True if every character in `range` carries the `.marcdownConcealed`
-        /// attribute. An empty range returns false (no characters to extend
-        /// through).
+        /// True if every character in `range` carries the
+        /// `.marcdownConcealedLogical` attribute. An empty range returns
+        /// false (no characters to extend through). We read the *logical*
+        /// flag (not `.marcdownConcealed`) so focus-line reveal doesn't
+        /// suppress concealment-aware deletes on the line the user is on.
         private func rangeIsAllConcealed(in storage: NSTextStorage, range: NSRange) -> Bool {
             guard range.length > 0,
                 range.location >= 0,
@@ -322,7 +542,7 @@ public struct NoteEditorView: NSViewRepresentable {
             else { return false }
             var allConcealed = true
             storage.enumerateAttribute(
-                .marcdownConcealed,
+                .marcdownConcealedLogical,
                 in: range,
                 options: []
             ) { value, _, stop in
@@ -401,7 +621,7 @@ public struct NoteEditorView: NSViewRepresentable {
             )
             switch listOutcome {
             case .noOp:
-                return false
+                break
             case .replace(let range, let replacement, let cursorOffsetInBuffer):
                 let undoName = replacement.isEmpty ? "Remove List Item" : "New List Item"
                 guard textView.shouldChangeText(in: range, replacementString: replacement) else {
@@ -411,7 +631,28 @@ public struct NoteEditorView: NSViewRepresentable {
                 storage.replaceCharacters(in: range, with: replacement)
                 textView.didChangeText()
                 textView.setSelectedRange(NSRange(location: cursorOffsetInBuffer, length: 0))
-                // textDidChange will run a restyle pass + propagate text.
+                // Renumber any ordered run whose structure may have changed.
+                runRenumberPass(in: textView, around: cursorOffsetInBuffer)
+                return true
+            }
+
+            // Blockquote helper — Spec §9.
+            let blockquoteOutcome = BlockquoteContinuation.enterOutcome(
+                buffer: storage.string,
+                cursorOffset: cursor
+            )
+            switch blockquoteOutcome {
+            case .noOp:
+                return false
+            case .replace(let range, let replacement, let cursorOffsetInBuffer):
+                let undoName = replacement.isEmpty ? "Exit Blockquote" : "New Blockquote Line"
+                guard textView.shouldChangeText(in: range, replacementString: replacement) else {
+                    return false
+                }
+                textView.undoManager?.setActionName(undoName)
+                storage.replaceCharacters(in: range, with: replacement)
+                textView.didChangeText()
+                textView.setSelectedRange(NSRange(location: cursorOffsetInBuffer, length: 0))
                 return true
             }
         }
@@ -452,7 +693,7 @@ public struct NoteEditorView: NSViewRepresentable {
             )
             switch listOutcome {
             case .standard:
-                return false
+                break
             case .replace(let range, let cursorOffsetInBuffer):
                 guard textView.shouldChangeText(in: range, replacementString: "") else {
                     return false
@@ -461,7 +702,45 @@ public struct NoteEditorView: NSViewRepresentable {
                 storage.replaceCharacters(in: range, with: "")
                 textView.didChangeText()
                 textView.setSelectedRange(NSRange(location: cursorOffsetInBuffer, length: 0))
-                // textDidChange will run a restyle pass + propagate text.
+                runRenumberPass(in: textView, around: cursorOffsetInBuffer)
+                return true
+            }
+
+            // Blockquote helper — Spec §9.4.
+            let blockquoteOutcome = BlockquoteContinuation.backspaceOutcome(
+                buffer: storage.string,
+                cursorOffset: cursor
+            )
+            switch blockquoteOutcome {
+            case .standard:
+                break
+            case .replace(let range, let cursorOffsetInBuffer):
+                guard textView.shouldChangeText(in: range, replacementString: "") else {
+                    return false
+                }
+                textView.undoManager?.setActionName("Remove Blockquote")
+                storage.replaceCharacters(in: range, with: "")
+                textView.didChangeText()
+                textView.setSelectedRange(NSRange(location: cursorOffsetInBuffer, length: 0))
+                return true
+            }
+
+            // Heading helper — Spec §8.2.
+            let headingOutcome = HeadingContinuation.backspaceOutcome(
+                buffer: storage.string,
+                cursorOffset: cursor
+            )
+            switch headingOutcome {
+            case .standard:
+                return false
+            case .replace(let range, let cursorOffsetInBuffer):
+                guard textView.shouldChangeText(in: range, replacementString: "") else {
+                    return false
+                }
+                textView.undoManager?.setActionName("Remove Heading")
+                storage.replaceCharacters(in: range, with: "")
+                textView.didChangeText()
+                textView.setSelectedRange(NSRange(location: cursorOffsetInBuffer, length: 0))
                 return true
             }
         }
