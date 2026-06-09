@@ -86,14 +86,15 @@ struct OrderedListRenumberTests {
         let buffer = "1. a\n2. \n2. b"
         let outcome = OrderedListRenumber.renumberRun(
             buffer: buffer,
-            anchorOffset: 5,        // start of the new "2. " line
-            cursorOffset: 8         // cursor at end of marker on the new line
+            anchorOffset: 5,  // start of the new "2. " line
+            cursorOffset: 8  // cursor at end of marker on the new line
         )
         #expect(
-            outcome == .rewrite(
-                newBuffer: "1. a\n2. \n3. b",
-                newCursorOffset: 8
-            )
+            outcome
+                == .rewrite(
+                    newBuffer: "1. a\n2. \n3. b",
+                    newCursorOffset: 8
+                )
         )
     }
 
@@ -102,14 +103,15 @@ struct OrderedListRenumberTests {
         let buffer = "preamble\n\n5. a\n7. b\n9. c"
         let outcome = OrderedListRenumber.renumberRun(
             buffer: buffer,
-            anchorOffset: 10,       // anchor on "5. a"
+            anchorOffset: 10,  // anchor on "5. a"
             cursorOffset: 14
         )
         #expect(
-            outcome == .rewrite(
-                newBuffer: "preamble\n\n5. a\n6. b\n7. c",
-                newCursorOffset: 14
-            )
+            outcome
+                == .rewrite(
+                    newBuffer: "preamble\n\n5. a\n6. b\n7. c",
+                    newCursorOffset: 14
+                )
         )
     }
 
@@ -121,14 +123,15 @@ struct OrderedListRenumberTests {
         let buffer = "1. a\n3. c"
         let outcome = OrderedListRenumber.renumberRun(
             buffer: buffer,
-            anchorOffset: 0,        // anchor on the still-existing first item
-            cursorOffset: 4         // cursor at end of "1. a"
+            anchorOffset: 0,  // anchor on the still-existing first item
+            cursorOffset: 4  // cursor at end of "1. a"
         )
         #expect(
-            outcome == .rewrite(
-                newBuffer: "1. a\n2. c",
-                newCursorOffset: 4
-            )
+            outcome
+                == .rewrite(
+                    newBuffer: "1. a\n2. c",
+                    newCursorOffset: 4
+                )
         )
     }
 
@@ -141,14 +144,15 @@ struct OrderedListRenumberTests {
         let buffer = "1. a\n  1. b\n  2. c\n5. d"
         let outcome = OrderedListRenumber.renumberRun(
             buffer: buffer,
-            anchorOffset: 0,        // anchor at depth 0
+            anchorOffset: 0,  // anchor at depth 0
             cursorOffset: 0
         )
         #expect(
-            outcome == .rewrite(
-                newBuffer: "1. a\n  1. b\n  2. c\n2. d",
-                newCursorOffset: 0
-            )
+            outcome
+                == .rewrite(
+                    newBuffer: "1. a\n  1. b\n  2. c\n2. d",
+                    newCursorOffset: 0
+                )
         )
     }
 
@@ -158,14 +162,15 @@ struct OrderedListRenumberTests {
         let buffer = "1. a\n  1. b\n  3. c\n5. d"
         let outcome = OrderedListRenumber.renumberRun(
             buffer: buffer,
-            anchorOffset: 5,        // anchor at depth 2 (the "  1. b" line)
+            anchorOffset: 5,  // anchor at depth 2 (the "  1. b" line)
             cursorOffset: 5
         )
         #expect(
-            outcome == .rewrite(
-                newBuffer: "1. a\n  1. b\n  2. c\n5. d",
-                newCursorOffset: 5
-            )
+            outcome
+                == .rewrite(
+                    newBuffer: "1. a\n  1. b\n  2. c\n5. d",
+                    newCursorOffset: 5
+                )
         )
     }
 
@@ -183,10 +188,11 @@ struct OrderedListRenumberTests {
             cursorOffset: 14
         )
         #expect(
-            outcome == .rewrite(
-                newBuffer: "8. a\n9. b\n10. c",
-                newCursorOffset: 15
-            )
+            outcome
+                == .rewrite(
+                    newBuffer: "8. a\n9. b\n10. c",
+                    newCursorOffset: 15
+                )
         )
     }
 
@@ -202,10 +208,11 @@ struct OrderedListRenumberTests {
             cursorOffset: 16
         )
         #expect(
-            outcome == .rewrite(
-                newBuffer: "9. a\n10. b\n11. c",
-                newCursorOffset: 16
-            )
+            outcome
+                == .rewrite(
+                    newBuffer: "9. a\n10. b\n11. c",
+                    newCursorOffset: 16
+                )
         )
     }
 

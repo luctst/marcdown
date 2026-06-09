@@ -90,7 +90,8 @@ public enum OrderedListRenumber {
 
         // 4. Compute the new numbers. Preserve the first line's number.
         guard let firstStart = runLineStarts.first,
-            let firstMeta = orderedLineMetadata(units: units, lineStart: firstStart, lineEnd: scanLineEnd(units: units, startOffset: firstStart))
+            let firstMeta = orderedLineMetadata(
+                units: units, lineStart: firstStart, lineEnd: scanLineEnd(units: units, startOffset: firstStart))
         else { return .noOp }
 
         let firstNumber = firstMeta.number
