@@ -11,6 +11,15 @@ import Foundation
 extension NSAttributedString.Key {
     public static let marcdownConcealed = NSAttributedString.Key("marcdownConcealed")
 
+    /// Mirror of `.marcdownConcealed` that survives focus-line reveal.
+    /// When the styler reveals the focused line, it strips
+    /// `.marcdownConcealed` (so the layout delegate stops suppressing the
+    /// glyphs) but leaves `.marcdownConcealedLogical` intact. The editor's
+    /// arrow-key handler reads the logical flag to know whether to jump
+    /// over a concealed run in one keystroke — even when the user is
+    /// currently parked on that line (Thomas §1c).
+    public static let marcdownConcealedLogical = NSAttributedString.Key("marcdownConcealedLogical")
+
     /// Tags the 3-char `[ ]` / `[x]` / `[X]` source range of a complete task
     /// marker. Value is a `MarcdownCheckboxState`. Read by the editor's
     /// custom layout manager to draw the icon and by the click handler to
@@ -43,10 +52,25 @@ extension NSAttributedString.Key {
 
 /// Kind of plain list marker tagged by the list-scanner pass.
 ///
-/// `.bullet` covers any of `-`, `*`, `+` followed by a single space/tab.
-/// `.ordered(number:)` carries the parsed integer that the layout manager
-/// re-draws as the visible glyph (e.g. `"10."`).
+/// `.bullet(depth:)` covers any of `-`, `*`, `+` followed by a single
+/// space/tab. `depth` is the 0-indexed nesting depth derived from the
+/// leading whitespace on the line (2-space-per-level or 1-tab-per-level
+/// — see `ListLineScanner` / `ListIndentation`).
+///
+/// `.ordered(number:depth:)` carries the parsed integer that the layout
+/// manager re-draws as the visible glyph (e.g. `"10."`) plus the same
+/// depth value used for bullets.
 public enum MarcdownListMarkerKind: Sendable, Equatable, Hashable {
-    case bullet
-    case ordered(number: Int)
+    case bullet(depth: Int)
+    case ordered(number: Int, depth: Int)
+}
+
+extension MarcdownListMarkerKind {
+    /// Backwards-compatible factory for top-level bullets (depth 0).
+    public static var bullet: MarcdownListMarkerKind { .bullet(depth: 0) }
+
+    /// Backwards-compatible factory for top-level ordered items (depth 0).
+    public static func ordered(number: Int) -> MarcdownListMarkerKind {
+        .ordered(number: number, depth: 0)
+    }
 }

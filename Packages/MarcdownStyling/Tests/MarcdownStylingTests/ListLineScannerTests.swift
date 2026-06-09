@@ -30,9 +30,10 @@ struct ListLineScannerTests {
 
     @Test func indentedBulletPreservesIndent() {
         // Leading spaces are counted in indentLength; markerLength still 2.
+        // 2-space indent → depth 1.
         #expect(
             ListLineScanner.scan(line: "  - foo")
-                == .complete(indentLength: 2, markerLength: 2, kind: .bullet)
+                == .complete(indentLength: 2, markerLength: 2, kind: .bullet(depth: 1))
         )
     }
 

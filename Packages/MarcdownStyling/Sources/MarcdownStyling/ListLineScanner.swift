@@ -79,12 +79,14 @@ public enum ListLineScanner {
         guard units[i] == 0x20 || units[i] == 0x09 else { return .none }
         i += 1
 
+        let depth = depth(forIndentUnits: units, indentLength: indentLength)
+
         // `- ` with no body — complete marker, empty body.
         if i == length {
             return .complete(
                 indentLength: indentLength,
                 markerLength: 2,
-                kind: .bullet
+                kind: .bullet(depth: depth)
             )
         }
 
@@ -96,7 +98,7 @@ public enum ListLineScanner {
         return .complete(
             indentLength: indentLength,
             markerLength: 2,
-            kind: .bullet
+            kind: .bullet(depth: depth)
         )
     }
 
@@ -150,6 +152,8 @@ public enum ListLineScanner {
         guard units[i] == 0x20 || units[i] == 0x09 else { return .none }
         i += 1
 
+        let depth = depth(forIndentUnits: units, indentLength: indentLength)
+
         // `<digits>. ` with no body — complete marker, empty body.
         // Treat overflow as not-a-list-line — silently miscounting would be
         // worse than not concealing.
@@ -158,7 +162,7 @@ public enum ListLineScanner {
             return .complete(
                 indentLength: indentLength,
                 markerLength: i - indentLength,
-                kind: .ordered(number: number)
+                kind: .ordered(number: number, depth: depth)
             )
         }
 
@@ -169,7 +173,23 @@ public enum ListLineScanner {
         return .complete(
             indentLength: indentLength,
             markerLength: i - indentLength,
-            kind: .ordered(number: number)
+            kind: .ordered(number: number, depth: depth)
         )
+    }
+
+    /// Compute nesting depth from leading whitespace. A tab counts as one
+    /// depth level; spaces count as `floor(spaceCount / 2)`. Mixed indents
+    /// sum the two contributions.
+    private static func depth(forIndentUnits units: [UInt16], indentLength: Int) -> Int {
+        var spaces = 0
+        var tabs = 0
+        for k in 0..<indentLength {
+            if units[k] == 0x20 {
+                spaces += 1
+            } else if units[k] == 0x09 {
+                tabs += 1
+            }
+        }
+        return tabs + (spaces / 2)
     }
 }

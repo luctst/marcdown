@@ -177,7 +177,8 @@ struct ListAttributeTests {
                 longestEffectiveRange: &effective,
                 in: NSRange(location: 0, length: storage.length)
             ) as? MarcdownListMarkerKind
-        #expect(kind == .bullet)
+        // 2-space indent → depth 1 (new contract per `NestedBulletDepthTests`).
+        #expect(kind == .bullet(depth: 1))
         #expect(effective == NSRange(location: 2, length: 2))
     }
 

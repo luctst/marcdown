@@ -161,9 +161,9 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
                 if !drawnListRanges.contains(markerRange) {
                     drawnListRanges.insert(markerRange)
                     switch kind {
-                    case .bullet:
-                        drawBullet(charRange: markerRange, origin: origin)
-                    case .ordered(let number):
+                    case .bullet(let depth):
+                        drawBullet(charRange: markerRange, origin: origin, depth: depth)
+                    case .ordered(let number, _):
                         drawOrderedNumber(number: number, charRange: markerRange, origin: origin)
                     }
                 }
@@ -172,14 +172,22 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
         }
     }
 
-    /// Draws a filled circle in the first marker glyph's advance box. The
-    /// 2-char marker is `<dash><space>`; both glyphs are `.clear`-painted by
-    /// the styler with a forced monospaced font so each contributes a stable,
-    /// wide advance. We anchor on the first (dash) glyph and centre the
-    /// circle inside its advance box — the icon may bleed slightly past the
-    /// dash's right edge, but only into the (invisible) space glyph's slot,
-    /// never into the body text.
-    private nonisolated func drawBullet(charRange: NSRange, origin: NSPoint) {
+    /// Draws a depth-aware bullet glyph in the first marker glyph's advance
+    /// box. The 2-char marker is `<dash><space>`; both glyphs are
+    /// `.clear`-painted by the styler with a forced monospaced font so each
+    /// contributes a stable, wide advance. We anchor on the first (dash)
+    /// glyph and centre the glyph inside its advance box.
+    ///
+    /// Glyph cycling per Spec §4.7 / Thomas §2:
+    /// - depth 0: filled circle
+    /// - depth 1: hollow circle (stroked)
+    /// - depth 2: filled diamond (rotated square)
+    /// - depth 3+: hollow diamond
+    ///
+    /// All bullets use `labelColor` (body weight, not accent) per Thomas §2:
+    /// "bullets in Bear use labelColor at full opacity — they are part of
+    /// the content, not chrome."
+    private nonisolated func drawBullet(charRange: NSRange, origin: NSPoint, depth: Int) {
         guard charRange.length == 2 else { return }
 
         let glyphRange = glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
@@ -196,20 +204,52 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
         let secondLocation = location(forGlyphAt: firstGlyph + 1)
         let advance = secondLocation.x - firstLocation.x
 
-        let maxSide: CGFloat = 13
-        let side = min(lineFragRect.height * 0.65, maxSide)
+        let maxSide: CGFloat = 7
+        let side = min(lineFragRect.height * 0.32, maxSide)
         let advanceBoxWidth = advance > 0 ? advance : side
 
         let glyphX = origin.x + lineFragRect.origin.x + firstLocation.x
         let lineY = origin.y + lineFragRect.origin.y
 
         let iconX = glyphX + (advanceBoxWidth - side) / 2
-        let iconY = lineY + (lineFragRect.height - side) / 2
+        // Centre on x-height (~0.5 line height) rather than baseline for a
+        // better optical alignment with body text.
+        let iconY = lineY + lineFragRect.height * 0.5 - side * 0.5
         let rect = NSRect(x: iconX, y: iconY, width: side, height: side)
 
-        let path = NSBezierPath(ovalIn: rect)
-        NSColor.controlAccentColor.setFill()
-        path.fill()
+        let path: NSBezierPath
+        let isDiamond = (depth % 4) >= 2
+        if isDiamond {
+            path = diamondPath(in: rect)
+        } else {
+            path = NSBezierPath(ovalIn: rect)
+        }
+
+        let isHollow = (depth % 2) == 1
+        let color = NSColor.labelColor
+        if isHollow {
+            color.setStroke()
+            path.lineWidth = 1.0
+            path.stroke()
+        } else {
+            color.setFill()
+            path.fill()
+        }
+    }
+
+    /// Build a rotated-square (diamond) path inscribed in `rect`.
+    private nonisolated func diamondPath(in rect: NSRect) -> NSBezierPath {
+        let path = NSBezierPath()
+        let cx = rect.midX
+        let cy = rect.midY
+        let hw = rect.width / 2
+        let hh = rect.height / 2
+        path.move(to: NSPoint(x: cx, y: cy + hh))
+        path.line(to: NSPoint(x: cx + hw, y: cy))
+        path.line(to: NSPoint(x: cx, y: cy - hh))
+        path.line(to: NSPoint(x: cx - hw, y: cy))
+        path.close()
+        return path
     }
 
     /// Draws `"<N>."` anchored at the first digit's baseline, at the overlay
@@ -252,8 +292,11 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
         let drawY = baselineY - font.ascender
         let drawPoint = NSPoint(x: glyphX, y: drawY)
 
+        // Body color rather than accent (per Thomas §2a): the number is
+        // content, not chrome — accent-coloured digits across a long list
+        // read as visual noise.
         let attributes: [NSAttributedString.Key: Any] = [
-            .foregroundColor: NSColor.controlAccentColor,
+            .foregroundColor: NSColor.labelColor,
             .font: font,
         ]
 
