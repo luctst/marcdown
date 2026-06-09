@@ -493,11 +493,14 @@ struct StyleWalker: @preconcurrency MarkupWalker {
     }
 
     /// Tags `subrange` with `.marcdownConcealed = true` so the editor's
-    /// layout delegate will suppress the corresponding glyphs.
+    /// layout delegate will suppress the corresponding glyphs. Also tags
+    /// `.marcdownConcealedLogical` for the arrow-jump helper (see
+    /// `NSAttributedString.Key.marcdownConcealedLogical`).
     private func applyConceal(to subrange: NSRange) {
         let clamped = clampedToStorage(subrange)
         guard clamped.length > 0 else { return }
         storage.addAttribute(.marcdownConcealed, value: true, range: clamped)
+        storage.addAttribute(.marcdownConcealedLogical, value: true, range: clamped)
     }
 
     private func clampedToStorage(_ range: NSRange) -> NSRange {

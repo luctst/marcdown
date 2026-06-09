@@ -39,9 +39,13 @@ public final class MarkdownStyler {
     /// Wrapped in `beginEditing()`/`endEditing()` so layout is updated once and
     /// the cursor / selection is preserved. Only attributes are mutated; the
     /// character contents are never touched.
+    ///
+    /// If `focusLine` is non-nil, the styler runs an additional pass that
+    /// reveals concealed syntax on that line (Spec §3 — focus-line reveal).
     public func restyle(
         storage: NSTextStorage,
-        source: String
+        source: String,
+        focusLine: FocusLine? = nil
     ) {
         let document = Document(parsing: source)
         let index = LineOffsetIndex(source: source)
@@ -56,6 +60,7 @@ public final class MarkdownStyler {
         // that switches to `addAttributes` still strips them.
         if fullRange.length > 0 {
             storage.removeAttribute(.marcdownConcealed, range: fullRange)
+            storage.removeAttribute(.marcdownConcealedLogical, range: fullRange)
             storage.removeAttribute(.marcdownCheckbox, range: fullRange)
             storage.removeAttribute(.marcdownListMarker, range: fullRange)
             storage.removeAttribute(.marcdownCodeBlock, range: fullRange)
@@ -80,7 +85,58 @@ public final class MarkdownStyler {
         // the AST walk so any AST-applied attributes get overwritten.
         applyListScannerPass(storage: storage, source: source)
 
+        // Focus-line reveal: last pass so it can override conceal/clear-paint
+        // attributes set by the walker and the scanner passes.
+        if let focusLine {
+            applyFocusReveal(storage: storage, focusLine: focusLine)
+        }
+
         storage.endEditing()
+    }
+
+    /// Reveal all concealed syntax (and bullet/checkbox overlay tags) on the
+    /// focused line. The styler's previous passes have already applied
+    /// concealment / clear-paint / overlay tags; this pass strips them on the
+    /// focus line so the underlying characters become visible (dim) instead.
+    ///
+    /// Spec §3 / Thomas §1: the cursor lands on a line, the user expects to
+    /// see the raw markdown that produced the rendered output, then it
+    /// vanishes again when the cursor leaves.
+    private func applyFocusReveal(storage: NSTextStorage, focusLine: FocusLine) {
+        let storageLength = storage.length
+        let lower = max(0, min(focusLine.lineStart, storageLength))
+        let upper = max(lower, min(focusLine.lineStart + focusLine.lineLength, storageLength))
+        guard upper > lower else { return }
+        let range = NSRange(location: lower, length: upper - lower)
+
+        // Strip the overlay-trigger tags so the layout manager does NOT draw
+        // a bullet circle / number / checkbox icon on this line.
+        storage.removeAttribute(.marcdownListMarker, range: range)
+        storage.removeAttribute(.marcdownCheckbox, range: range)
+
+        // Strip concealment and repaint any previously concealed OR
+        // clear-painted run in the dim theme color so the raw syntax becomes
+        // visible.
+        storage.enumerateAttribute(
+            .marcdownConcealed,
+            in: range,
+            options: []
+        ) { value, subrange, _ in
+            guard (value as? Bool) == true else { return }
+            storage.removeAttribute(.marcdownConcealed, range: subrange)
+            storage.addAttribute(.foregroundColor, value: theme.dim, range: subrange)
+        }
+
+        // Flip clear-painted glyphs (bullet/ordered/checkbox markers) to dim
+        // so the raw `- ` / `1. ` / `- [ ]` becomes legible.
+        storage.enumerateAttribute(
+            .foregroundColor,
+            in: range,
+            options: []
+        ) { value, subrange, _ in
+            guard let color = value as? NSColor, color == .clear else { return }
+            storage.addAttribute(.foregroundColor, value: theme.dim, range: subrange)
+        }
     }
 
     /// Walks `source` line-by-line, classifying each via `CheckboxLineScanner`,
@@ -255,7 +311,7 @@ public final class MarkdownStyler {
             applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
         case .complete(let indentLength, let markerLength, let kind):
             switch kind {
-            case .bullet:
+            case .bullet(let depth):
                 // Marker layout is `<char><space>` (exactly 2 chars).
                 let markerRange = NSRange(
                     location: lineStart + indentLength,
@@ -282,12 +338,12 @@ public final class MarkdownStyler {
                 // the bullet glyph.
                 storage.addAttribute(
                     .marcdownListMarker,
-                    value: MarcdownListMarkerKind.bullet,
+                    value: MarcdownListMarkerKind.bullet(depth: depth),
                     range: markerRange
                 )
 
                 applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
-            case .ordered(let number):
+            case .ordered(let number, let depth):
                 // Marker layout is `<digits>.<space>` — markerLength = digits + 2.
                 let digitCount = markerLength - 2
                 guard digitCount > 0 else { return }
@@ -316,7 +372,7 @@ public final class MarkdownStyler {
                 // Tag the full marker range with the ordered kind.
                 storage.addAttribute(
                     .marcdownListMarker,
-                    value: MarcdownListMarkerKind.ordered(number: number),
+                    value: MarcdownListMarkerKind.ordered(number: number, depth: depth),
                     range: markerRange
                 )
 
@@ -332,6 +388,7 @@ public final class MarkdownStyler {
         guard upper > lower else { return }
         let clamped = NSRange(location: lower, length: upper - lower)
         storage.addAttribute(.marcdownConcealed, value: true, range: clamped)
+        storage.addAttribute(.marcdownConcealedLogical, value: true, range: clamped)
     }
 
     private func applyParagraphSpacing(

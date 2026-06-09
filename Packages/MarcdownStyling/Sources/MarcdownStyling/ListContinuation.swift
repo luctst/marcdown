@@ -72,7 +72,18 @@ public enum ListContinuation {
             // Empty body → exit the list. Strip indent + marker entirely and
             // land the cursor on a blank paragraph (same shape as the
             // empty-task branch in `TaskListContinuation`).
+            //
+            // Spec §4.3 / acceptance #6: if any content precedes this line,
+            // also insert a blank-line separator (CommonMark requires it for
+            // subsequent text not to be parsed as part of the list).
             if bodyLength <= 0 {
+                if lineStart > 0 {
+                    return .replace(
+                        range: NSRange(location: lineStart, length: bodyStart),
+                        replacement: "\n",
+                        cursorOffsetInBuffer: lineStart + 1
+                    )
+                }
                 return .replace(
                     range: NSRange(location: lineStart, length: bodyStart),
                     replacement: "",
@@ -94,7 +105,7 @@ public enum ListContinuation {
                 let markerCharUnit = units[lineStart + indentLength]
                 let markerChar = Character(Unicode.Scalar(markerCharUnit)!)
                 continuation = "\n" + indent + String(markerChar) + " "
-            case .ordered(let number):
+            case .ordered(let number, _):
                 continuation = "\n" + indent + "\(number + 1). "
             }
 
@@ -145,14 +156,27 @@ public enum ListContinuation {
             return atomicDelete(lineStart: lineStart, lineEnd: lineEnd)
 
         case .complete(let indentLength, let markerLength, _):
-            // Atomic delete only when cursor is at the end of an empty-body
-            // marker line.
+            // Atomic delete when cursor is at the end of an empty-body marker.
             let bodyStart = indentLength + markerLength
-            guard
-                cursorOffsetInLine == bodyStart,
-                lineLength == bodyStart
-            else { return .standard }
-            return atomicDelete(lineStart: lineStart, lineEnd: lineEnd)
+            if cursorOffsetInLine == bodyStart, lineLength == bodyStart {
+                return atomicDelete(lineStart: lineStart, lineEnd: lineEnd)
+            }
+
+            // Thomas §8 push-back / acceptance: cursor at marker-start
+            // (right before the `-` / digit) on a non-first line joins the
+            // current line into the previous line and strips the indent +
+            // marker. Otherwise we'd leave a stray `- ` mid-paragraph.
+            if cursorOffsetInLine == indentLength, lineStart > 0 {
+                // Delete `\n` + indent + marker (length: 1 + indentLength + markerLength).
+                let deleteStart = lineStart - 1
+                let deleteLength = 1 + indentLength + markerLength
+                return .replace(
+                    range: NSRange(location: deleteStart, length: deleteLength),
+                    cursorOffsetInBuffer: deleteStart
+                )
+            }
+
+            return .standard
         }
     }
 
