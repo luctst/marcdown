@@ -73,6 +73,7 @@ public final class MarkdownStyler {
             storage.removeAttribute(.marcdownCheckbox, range: fullRange)
             storage.removeAttribute(.marcdownListMarker, range: fullRange)
             storage.removeAttribute(.marcdownCodeBlock, range: fullRange)
+            storage.removeAttribute(.marcdownBlockquote, range: fullRange)
         }
 
         var walker = StyleWalker(

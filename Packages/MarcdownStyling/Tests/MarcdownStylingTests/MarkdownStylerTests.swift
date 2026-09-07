@@ -106,13 +106,15 @@ struct MarkdownStylerTests {
         #expect(outroFont?.fontDescriptor.symbolicTraits.contains(.monoSpace) == false)
     }
 
-    @Test func blockquoteAppliesDimColor() {
+    @Test func blockquoteMarkerIsClearPaintedAndBodyKeepsColor() {
         let styler = MarkdownStyler()
         let source = "> quoted line"
         let attributed = styler.attributedString(for: source)
 
-        let color = attributed.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
-        #expect(color == StylingTheme.system.dim)
+        let markerColor = attributed.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        #expect(markerColor == NSColor.clear)
+        let bodyColor = attributed.attribute(.foregroundColor, at: 2, effectiveRange: nil) as? NSColor
+        #expect(bodyColor == StylingTheme.system.body)
     }
 
     // MARK: - restyle(storage:source:)

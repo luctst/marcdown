@@ -48,6 +48,11 @@ extension NSAttributedString.Key {
     /// exclusively by `StyleWalker.visitLink`; read by the editor's click
     /// handler in `mouseDown` to open the URL on Cmd+click.
     public static let marcdownLink = NSAttributedString.Key("marcdownLink")
+
+    /// Tags every character of a blockquote (nested quotes share the run).
+    /// Value is a `Bool`. Written by `StyleWalker.visitBlockQuote`; read by
+    /// the editor's layout manager to draw one vertical bar beside the run.
+    public static let marcdownBlockquote = NSAttributedString.Key("marcdownBlockquote")
 }
 
 /// Kind of plain list marker tagged by the list-scanner pass.

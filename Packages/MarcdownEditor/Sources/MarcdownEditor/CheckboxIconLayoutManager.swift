@@ -44,6 +44,12 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
     /// when unset (preserves usability for tests / previews).
     nonisolated(unsafe) var codeBlockFillColor: NSColor?
 
+    /// Per-draw deduplication for blockquote bars, same rationale as
+    /// `drawnCodeBlockRanges`.
+    private nonisolated(unsafe) var drawnQuoteRanges: Set<NSRange> = []
+    /// Bar colour for `.marcdownBlockquote` runs; set from `StylingTheme.quoteBar`.
+    nonisolated(unsafe) var quoteBarColor: NSColor?
+
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
         // Code-block container is drawn first so checkbox + list-marker
@@ -51,6 +57,7 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
         // shouldn't overlap in practice, but the icons are interactive UI
         // and must never be visually clipped by a background fill).
         drawCodeBlockBackgrounds(forGlyphRange: glyphsToShow, at: origin)
+        drawBlockquoteBars(forGlyphRange: glyphsToShow, at: origin)
         drawCheckboxIcons(forGlyphRange: glyphsToShow, at: origin)
         drawListMarkers(forGlyphRange: glyphsToShow, at: origin)
     }
@@ -329,6 +336,45 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
             let font = storage.attribute(.font, at: charIndex, effectiveRange: nil) as? NSFont
         else { return NSFont.systemFont(ofSize: NSFont.systemFontSize).xHeight }
         return font.xHeight
+    }
+
+    // MARK: - Blockquote bar
+
+    /// One 3pt rounded bar per `.marcdownBlockquote` run, hugging the left
+    /// edge of the text container. The clear-painted `> ` cells provide the
+    /// gap between bar and text, so no extra indent is needed here.
+    private nonisolated func drawBlockquoteBars(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        drawnQuoteRanges.removeAll(keepingCapacity: true)
+        guard let storage = textStorage, let container = textContainers.first else { return }
+        guard glyphsToShow.length > 0 else { return }
+        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        guard charRange.length > 0 else { return }
+
+        let storageLength = storage.length
+        let upper = min(charRange.location + charRange.length, storageLength)
+        let color = quoteBarColor ?? NSColor.tertiaryLabelColor
+        var probe = charRange.location
+        while probe < upper {
+            var effective = NSRange(location: 0, length: 0)
+            let value = storage.attribute(
+                .marcdownBlockquote,
+                at: probe,
+                longestEffectiveRange: &effective,
+                in: NSRange(location: 0, length: storageLength)
+            )
+            if let flag = value as? Bool, flag, effective.length > 0, !drawnQuoteRanges.contains(effective) {
+                drawnQuoteRanges.insert(effective)
+                let glyphs = glyphRange(forCharacterRange: effective, actualCharacterRange: nil)
+                if glyphs.length > 0 {
+                    let bounding = boundingRect(forGlyphRange: glyphs, in: container)
+                    let rect = NSRect(
+                        x: origin.x + 4, y: origin.y + bounding.origin.y, width: 3, height: bounding.height)
+                    color.setFill()
+                    NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5).fill()
+                }
+            }
+            probe = max(probe + 1, effective.location + effective.length)
+        }
     }
 
     // MARK: - Code block container

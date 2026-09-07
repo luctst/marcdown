@@ -16,6 +16,7 @@ struct StyleWalker: @preconcurrency MarkupWalker {
     private let theme: StylingTheme
     private let baseFont: NSFont
     private let index: LineOffsetIndex
+    private let monoCellWidth: CGFloat
 
     init(
         storage: NSTextStorage,
@@ -27,6 +28,8 @@ struct StyleWalker: @preconcurrency MarkupWalker {
         self.theme = theme
         self.baseFont = baseFont
         self.index = index
+        let mono = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
+        self.monoCellWidth = ("0" as NSString).size(withAttributes: [.font: mono]).width
     }
 
     // MARK: - Blocks
@@ -153,12 +156,77 @@ struct StyleWalker: @preconcurrency MarkupWalker {
             descendInto(blockQuote)
             return
         }
-        addAttributes([.foregroundColor: theme.dim], range: range)
-        ParagraphStyling.mutate(in: storage, range: clampedToStorage(range)) { style in
-            style.firstLineHeadIndent = 12
-            style.headIndent = 12
+        let clamped = clampedToStorage(range)
+        guard clamped.length > 0 else {
+            descendInto(blockQuote)
+            return
         }
+        storage.addAttribute(.marcdownBlockquote, value: true, range: clamped)
+        styleBlockquoteLines(in: clamped)
         descendInto(blockQuote)
+    }
+
+    /// Per line of the quote: clear-paint the leading `>` run (monospaced so
+    /// it keeps a stable advance — the same treatment as list markers) and
+    /// hang the body under the first visible character. Lazy-continuation
+    /// lines with no marker get the same head indent so they align. Lines
+    /// are walked from their true start so a nested quote's visit (whose
+    /// node range begins mid-line) recomputes the same full-line prefix.
+    private func styleBlockquoteLines(in blockRange: NSRange) {
+        let storageString = storage.string as NSString
+        let upper = blockRange.location + blockRange.length
+        var lineStart = blockRange.location
+        while lineStart > 0, storageString.character(at: lineStart - 1) != 0x0A {
+            lineStart -= 1
+        }
+        let mono = monospacedFont()
+        var lastMarkerLength = 0
+        while lineStart < upper {
+            var lineEnd = lineStart
+            while lineEnd < upper, storageString.character(at: lineEnd) != 0x0A {
+                lineEnd += 1
+            }
+            let lineRange = NSRange(location: lineStart, length: lineEnd - lineStart)
+            if lineRange.length > 0 {
+                let markerLength = blockquoteMarkerLength(at: lineRange, in: storageString)
+                if markerLength > 0 {
+                    let markerRange = NSRange(location: lineStart, length: markerLength)
+                    storage.removeAttribute(.marcdownConcealed, range: markerRange)
+                    storage.addAttributes([.foregroundColor: NSColor.clear, .font: mono], range: markerRange)
+                    lastMarkerLength = markerLength
+                }
+                let hang = CGFloat(lastMarkerLength) * monoCellWidth
+                ParagraphStyling.mutate(in: storage, range: lineRange) { style in
+                    style.headIndent = hang
+                    style.firstLineHeadIndent = markerLength > 0 ? 0 : hang
+                }
+            }
+            if lineEnd >= upper { break }
+            lineStart = lineEnd + 1
+        }
+    }
+
+    /// UTF-16 length of the leading quote prefix: up to 3 spaces, then one
+    /// or more `>` each optionally followed by a space (`> `, `>> `, `> > `).
+    /// 0 when the line carries no marker.
+    private func blockquoteMarkerLength(at lineRange: NSRange, in storageString: NSString) -> Int {
+        let upper = lineRange.location + lineRange.length
+        var probe = lineRange.location
+        var leading = 0
+        while probe < upper, leading < 3, storageString.character(at: probe) == 0x20 {
+            probe += 1
+            leading += 1
+        }
+        var sawMarker = false
+        // 0x3E == '>'
+        while probe < upper, storageString.character(at: probe) == 0x3E {
+            sawMarker = true
+            probe += 1
+            if probe < upper, storageString.character(at: probe) == 0x20 {
+                probe += 1
+            }
+        }
+        return sawMarker ? probe - lineRange.location : 0
     }
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
