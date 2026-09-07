@@ -35,11 +35,20 @@ public enum HTMLExporter {
     }
 
     /// `==text==` → `<mark>text</mark>`. cmark passes inline HTML through, so
-    /// this pre-pass is enough. ponytail: also rewrites inside code spans;
-    /// switch to a post-AST rewrite if that ever matters.
+    /// this pre-pass is enough. Fenced blocks are passed through untouched.
+    /// ponytail: still rewrites inside inline code spans; switch to a
+    /// post-AST rewrite if that ever matters.
     static func markHighlights(in markdown: String) -> String {
-        markdown.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
-            let text = String(line)
+        var inFence = false
+        // `components` (not `split`) so `\r\n` splits on the `\n` — Swift
+        // treats CRLF as a single `Character`, which `split` would not break.
+        return markdown.components(separatedBy: "\n").map { text -> String in
+            let trimmed = text.drop { $0 == " " || $0 == "\t" }
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                inFence.toggle()
+                return text
+            }
+            if inFence { return text }
             let units = Array(text.utf16)
             var rebuilt = ""
             var cursor = 0
