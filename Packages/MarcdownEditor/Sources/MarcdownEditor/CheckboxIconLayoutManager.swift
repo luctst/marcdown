@@ -115,10 +115,13 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
         // adding the textContainerOrigin (`origin` passed in already accounts
         // for that — it is the container origin in the view).
         let glyphX = origin.x + lineFragRect.origin.x + middleLocation.x
-        let lineY = origin.y + lineFragRect.origin.y
+        // TextKit 1 adds the extra `lineHeightMultiple` space above the
+        // glyphs, so centring on the fragment height drifts high. Anchor on
+        // the baseline and centre on the x-height instead.
+        let baselineY = origin.y + lineFragRect.origin.y + middleLocation.y
 
         let iconX = glyphX + (advanceBoxWidth - side) / 2
-        let iconY = lineY + (lineFragRect.height - side) / 2
+        let iconY = baselineY - xHeight(forGlyphAt: middleGlyph) / 2 - side / 2
         let rect = NSRect(x: iconX, y: iconY, width: side, height: side)
 
         let path = NSBezierPath(roundedRect: rect, xRadius: side * 0.25, yRadius: side * 0.25)
@@ -209,12 +212,12 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
         let advanceBoxWidth = advance > 0 ? advance : side
 
         let glyphX = origin.x + lineFragRect.origin.x + firstLocation.x
-        let lineY = origin.y + lineFragRect.origin.y
+        let baselineY = origin.y + lineFragRect.origin.y + firstLocation.y
 
         let iconX = glyphX + (advanceBoxWidth - side) / 2
-        // Centre on x-height (~0.5 line height) rather than baseline for a
-        // better optical alignment with body text.
-        let iconY = lineY + lineFragRect.height * 0.5 - side * 0.5
+        // Centre on the x-height above the baseline for optical alignment
+        // with lowercase body text, independent of the line-height multiple.
+        let iconY = baselineY - xHeight(forGlyphAt: firstGlyph) / 2 - side / 2
         let rect = NSRect(x: iconX, y: iconY, width: side, height: side)
 
         let path: NSBezierPath
@@ -316,6 +319,16 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
             return font.pointSize
         }
         return NSFont.systemFontSize
+    }
+
+    /// x-height of the font the styler wrote at `glyphIndex`, so overlay
+    /// icons centre on lowercase text regardless of the line-height multiple.
+    private nonisolated func xHeight(forGlyphAt glyphIndex: Int) -> CGFloat {
+        let charIndex = characterIndexForGlyph(at: glyphIndex)
+        guard let storage = textStorage, charIndex < storage.length,
+            let font = storage.attribute(.font, at: charIndex, effectiveRange: nil) as? NSFont
+        else { return NSFont.systemFont(ofSize: NSFont.systemFontSize).xHeight }
+        return font.xHeight
     }
 
     // MARK: - Code block container

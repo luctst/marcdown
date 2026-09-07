@@ -47,10 +47,11 @@ struct StyleWalker: @preconcurrency MarkupWalker {
             return
         }
 
-        let size = headingSize(for: heading.level)
-        let font = NSFontManager.shared
-            .convert(.systemFont(ofSize: size, weight: .bold), toHaveTrait: .boldFontMask)
-        addAttributes([.font: font], range: range)
+        addAttributes([.font: headingFont(for: heading.level)], range: range)
+        ParagraphStyling.mutate(in: storage, range: clampedToStorage(range)) { style in
+            style.paragraphSpacingBefore = headingSpacingBefore(for: heading.level)
+            style.paragraphSpacing = 4
+        }
 
         // ATX heading marker concealment — only for ATX (`# `, `## ` …).
         // Setext headings (`====` / `----` underlines) report a multi-line
@@ -152,16 +153,11 @@ struct StyleWalker: @preconcurrency MarkupWalker {
             descendInto(blockQuote)
             return
         }
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.firstLineHeadIndent = 12
-        paragraph.headIndent = 12
-        addAttributes(
-            [
-                .foregroundColor: theme.dim,
-                .paragraphStyle: paragraph,
-            ],
-            range: range
-        )
+        addAttributes([.foregroundColor: theme.dim], range: range)
+        ParagraphStyling.mutate(in: storage, range: clampedToStorage(range)) { style in
+            style.firstLineHeadIndent = 12
+            style.headIndent = 12
+        }
         descendInto(blockQuote)
     }
 
@@ -173,24 +169,19 @@ struct StyleWalker: @preconcurrency MarkupWalker {
         // `.backgroundColor` here would render per-glyph rectangles under
         // the rounded fill and bleed past its edges. The container alone
         // owns the background.
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.paragraphSpacingBefore = 8
-        paragraph.paragraphSpacing = 8
+        addAttributes([.font: monospacedFont()], range: range)
         // 14pt of horizontal text inset on each side so the code text and
         // fence lines sit comfortably inside the rounded container the
         // layout manager paints from `.marcdownCodeBlock`. `tailIndent`
         // is negative per AppKit convention (offset from the trailing
         // edge of the text container).
-        paragraph.firstLineHeadIndent = 14
-        paragraph.headIndent = 14
-        paragraph.tailIndent = -14
-        addAttributes(
-            [
-                .font: monospacedFont(),
-                .paragraphStyle: paragraph,
-            ],
-            range: range
-        )
+        ParagraphStyling.mutate(in: storage, range: clampedToStorage(range)) { style in
+            style.paragraphSpacingBefore = 8
+            style.paragraphSpacing = 8
+            style.firstLineHeadIndent = 14
+            style.headIndent = 14
+            style.tailIndent = -14
+        }
 
         // Tag the entire block (including fence lines) so the layout
         // manager can locate the run and draw a single rounded container.
@@ -465,6 +456,24 @@ struct StyleWalker: @preconcurrency MarkupWalker {
         case 4: return base + 2
         case 5: return base + 1
         default: return base
+        }
+    }
+
+    /// Headings share the body font family (Avenir Next by default) at the
+    /// theme scale, bolded. Falling back to the system font here is what made
+    /// headings look pasted in from another app.
+    private func headingFont(for level: Int) -> NSFont {
+        let manager = NSFontManager.shared
+        let sized = manager.convert(baseFont, toSize: headingSize(for: level))
+        return manager.convert(sized, toHaveTrait: .boldFontMask)
+    }
+
+    private func headingSpacingBefore(for level: Int) -> CGFloat {
+        switch level {
+        case 1: return 16
+        case 2: return 12
+        case 3: return 8
+        default: return 6
         }
     }
 

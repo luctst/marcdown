@@ -78,6 +78,8 @@ public struct NoteEditorView: NSViewRepresentable {
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
         textView.font = NSFont(name: "AvenirNext-Regular", size: 15) ?? NSFont.systemFont(ofSize: 15)
+        textView.defaultParagraphStyle = context.coordinator.baseParagraphStyle
+        textView.typingAttributes[.paragraphStyle] = context.coordinator.baseParagraphStyle
         textView.textContainerInset = NSSize(width: 16, height: 16)
 
         let scrollView = NSScrollView()
@@ -126,6 +128,9 @@ public struct NoteEditorView: NSViewRepresentable {
         /// to the layout manager without coupling the layout manager's
         /// `nonisolated` draw path to `@MainActor` types.
         var codeBlockFillColor: NSColor { styler.theme.codeBlockBackground }
+        /// Seeds the text view's default/typing paragraph style so the caret
+        /// on an empty note is as tall as the styler's line boxes.
+        var baseParagraphStyle: NSParagraphStyle { styler.baseParagraphStyle }
         /// Held strongly because `NSLayoutManager.delegate` is `weak`.
         let layoutDelegate = ConcealmentLayoutDelegate()
         /// Token for the focus-restore observer, removed on deinit. Mirrors

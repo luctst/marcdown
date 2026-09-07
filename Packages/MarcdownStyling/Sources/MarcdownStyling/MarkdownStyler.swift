@@ -400,16 +400,25 @@ public final class MarkdownStyler {
         let upper = min(lineStart + lineLength, storageLength)
         let lower = min(lineStart, storageLength)
         guard upper > lower else { return }
-        let range = NSRange(location: lower, length: upper - lower)
+        ParagraphStyling.mutate(in: storage, range: NSRange(location: lower, length: upper - lower)) { style in
+            style.paragraphSpacingBefore = 4
+        }
+    }
+
+    /// Paragraph style every line starts from. Public so the editor can seed
+    /// `NSTextView.defaultParagraphStyle`/`typingAttributes` and the empty
+    /// document's caret has the same height as typed text.
+    public var baseParagraphStyle: NSParagraphStyle {
         let style = NSMutableParagraphStyle()
-        style.paragraphSpacingBefore = 4
-        storage.addAttribute(.paragraphStyle, value: style, range: range)
+        style.lineHeightMultiple = theme.lineHeightMultiple
+        return style
     }
 
     private var baseAttributes: [NSAttributedString.Key: Any] {
         [
             .font: baseFont,
             .foregroundColor: theme.body,
+            .paragraphStyle: baseParagraphStyle,
         ]
     }
 }
