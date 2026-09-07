@@ -75,6 +75,7 @@ public final class MarkdownStyler {
             storage.removeAttribute(.marcdownCodeBlock, range: fullRange)
             storage.removeAttribute(.marcdownBlockquote, range: fullRange)
             storage.removeAttribute(.marcdownThematicBreak, range: fullRange)
+            storage.removeAttribute(.marcdownCodeLanguage, range: fullRange)
         }
 
         var walker = StyleWalker(
@@ -129,6 +130,7 @@ public final class MarkdownStyler {
         storage.removeAttribute(.marcdownListMarker, range: range)
         storage.removeAttribute(.marcdownCheckbox, range: range)
         storage.removeAttribute(.marcdownThematicBreak, range: range)
+        storage.removeAttribute(.marcdownCodeLanguage, range: range)
 
         // Strip concealment and repaint any previously concealed OR
         // clear-painted run in the dim theme color so the raw syntax becomes

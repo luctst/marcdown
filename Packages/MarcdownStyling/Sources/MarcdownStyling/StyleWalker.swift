@@ -258,34 +258,37 @@ struct StyleWalker: @preconcurrency MarkupWalker {
             storage.addAttribute(.marcdownCodeBlock, value: true, range: clamped)
         }
 
-        // Dim the fence lines. Walk line-by-line through the block; a fence
-        // is a line whose first non-whitespace run is ``` or ~~~ followed by
-        // an optional info string. The AST guarantees we have a fenced
-        // block, so the first and last lines of the range are fences.
-        dimFenceLines(in: clamped)
+        // Conceal the fence lines. Walk line-by-line through the block; a
+        // fence is a line whose first non-whitespace run is ``` or ~~~
+        // followed by an optional info string. The AST guarantees we have a
+        // fenced block, so the first and last lines of the range are fences.
+        concealFenceLines(in: clamped, language: codeBlock.language)
     }
 
-    /// Scans the lines inside `blockRange` and applies `theme.dim` to any
-    /// line that consists of a code fence (``` or ~~~ with an optional info
-    /// string). Body lines are left at `theme.body` from the base attributes.
-    private func dimFenceLines(in blockRange: NSRange) {
+    /// Fence lines are clear-painted (monospaced already, so they keep an
+    /// advance and the caret can land on them) and the first one carries the
+    /// language tag. Focus-line reveal flips them to dim so the user still
+    /// sees ```` ``` ```` while editing that line.
+    private func concealFenceLines(in blockRange: NSRange, language: String?) {
         guard blockRange.length > 0 else { return }
         let storageString = storage.string as NSString
         let upper = blockRange.location + blockRange.length
         var lineStart = blockRange.location
+        var isFirstFence = true
         while lineStart < upper {
             var lineEnd = lineStart
             while lineEnd < upper, storageString.character(at: lineEnd) != 0x0A {
                 lineEnd += 1
             }
-            let lineLength = lineEnd - lineStart
-            if lineLength > 0 {
-                let lineRange = NSRange(location: lineStart, length: lineLength)
-                if isFenceLine(at: lineRange, in: storageString) {
-                    addAttributes([.foregroundColor: theme.dim], range: lineRange)
+            let lineRange = NSRange(location: lineStart, length: lineEnd - lineStart)
+            if lineRange.length > 0, isFenceLine(at: lineRange, in: storageString) {
+                storage.removeAttribute(.marcdownConcealed, range: lineRange)
+                storage.addAttribute(.foregroundColor, value: NSColor.clear, range: lineRange)
+                if isFirstFence, let language, !language.isEmpty {
+                    storage.addAttribute(.marcdownCodeLanguage, value: language, range: lineRange)
                 }
+                isFirstFence = false
             }
-            // Skip past the `\n` (if any).
             if lineEnd >= upper { break }
             lineStart = lineEnd + 1
         }

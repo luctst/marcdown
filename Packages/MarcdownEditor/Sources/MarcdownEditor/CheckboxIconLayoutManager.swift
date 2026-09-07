@@ -44,6 +44,10 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
     /// when unset (preserves usability for tests / previews).
     nonisolated(unsafe) var codeBlockFillColor: NSColor?
 
+    /// Per-draw deduplication for language badges, same rationale as
+    /// `drawnCodeBlockRanges`.
+    private nonisolated(unsafe) var drawnBadgeRanges: Set<NSRange> = []
+
     /// Per-draw deduplication for blockquote bars, same rationale as
     /// `drawnCodeBlockRanges`.
     private nonisolated(unsafe) var drawnQuoteRanges: Set<NSRange> = []
@@ -63,6 +67,7 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
         // shouldn't overlap in practice, but the icons are interactive UI
         // and must never be visually clipped by a background fill).
         drawCodeBlockBackgrounds(forGlyphRange: glyphsToShow, at: origin)
+        drawCodeLanguageBadges(forGlyphRange: glyphsToShow, at: origin)
         drawBlockquoteBars(forGlyphRange: glyphsToShow, at: origin)
         drawThematicBreaks(forGlyphRange: glyphsToShow, at: origin)
         drawCheckboxIcons(forGlyphRange: glyphsToShow, at: origin)
@@ -463,6 +468,34 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
             let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
             fillColor.setFill()
             path.fill()
+        }
+    }
+
+    // MARK: - Code language badge
+
+    /// Right-aligned language name on the (clear-painted) opening fence
+    /// line, 4pt smaller than the code font, secondary colour. Uses the same
+    /// baseline conversion as `drawOrderedNumber`.
+    private nonisolated func drawCodeLanguageBadges(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let container = textContainers.first else { return }
+        forEachTaggedRun(.marcdownCodeLanguage, in: glyphsToShow, drawn: &drawnBadgeRanges) { value, effective in
+            guard let language = value as? String else { return }
+            let glyphs = glyphRange(forCharacterRange: effective, actualCharacterRange: nil)
+            guard glyphs.length > 0 else { return }
+            let fragment = lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil)
+            let baseline = location(forGlyphAt: glyphs.location)
+            let size = max(9, orderedOverlayFontSize(forGlyphAt: glyphs.location) - 4)
+            let font = NSFont.monospacedSystemFont(ofSize: size, weight: .medium)
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+            let width = (language as NSString).size(withAttributes: attributes).width
+            let point = NSPoint(
+                x: origin.x + container.size.width - 14 - width,
+                y: origin.y + fragment.origin.y + baseline.y - font.ascender
+            )
+            (language as NSString).draw(at: point, withAttributes: attributes)
         }
     }
 }

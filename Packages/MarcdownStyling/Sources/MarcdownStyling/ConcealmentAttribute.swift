@@ -58,6 +58,12 @@ extension NSAttributedString.Key {
     /// variants). Value is a `Bool`. Written by `StyleWalker.visitThematicBreak`;
     /// read by the layout manager to draw a rule; stripped on the focus line.
     public static let marcdownThematicBreak = NSAttributedString.Key("marcdownThematicBreak")
+
+    /// Tags the opening fence line of a fenced code block with its info
+    /// string (`swift` in ```` ```swift ````). Value is a `String`. Written by
+    /// `StyleWalker.visitCodeBlock`; read by the layout manager to draw a
+    /// language badge; stripped on the focus line.
+    public static let marcdownCodeLanguage = NSAttributedString.Key("marcdownCodeLanguage")
 }
 
 /// Kind of plain list marker tagged by the list-scanner pass.
