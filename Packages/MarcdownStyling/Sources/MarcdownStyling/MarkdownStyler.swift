@@ -96,6 +96,10 @@ public final class MarkdownStyler {
         // the AST walk so any AST-applied attributes get overwritten.
         applyListScannerPass(storage: storage, source: source)
 
+        // `==text==` is not CommonMark; a line scanner owns it. Runs after the
+        // walker so inline-code fonts and code-block tags are already in place.
+        applyHighlightPass(storage: storage, source: source)
+
         // Focus-line reveal: last pass so it can override conceal/clear-paint
         // attributes set by the walker and the scanner passes.
         if let focusLine {
@@ -151,37 +155,36 @@ public final class MarkdownStyler {
         }
     }
 
-    /// Walks `source` line-by-line, classifying each via `CheckboxLineScanner`,
-    /// and tags `.marcdownConcealed` / `.marcdownCheckbox` accordingly. This
-    /// is the only writer of `.marcdownCheckbox` in the entire pipeline.
-    private func applyCheckboxScannerPass(storage: NSTextStorage, source: String) {
+    /// Calls `body` once per line of `source` with the line's UTF-16 start
+    /// offset and its content (no trailing `\n`). Empty lines are skipped.
+    private func forEachLine(in source: String, _ body: (_ lineStart: Int, _ line: String) -> Void) {
         let units = Array(source.utf16)
         let length = units.count
         var lineStart = 0
         while lineStart <= length {
-            // Find lineEnd (the next `\n` or end of buffer).
             var lineEnd = lineStart
             while lineEnd < length, units[lineEnd] != 0x0A {
                 lineEnd += 1
             }
-
-            let lineLength = lineEnd - lineStart
-            if lineLength > 0 {
-                let lineSlice = Array(units[lineStart..<lineEnd])
-                let line = lineSlice.withUnsafeBufferPointer {
-                    String(utf16CodeUnits: $0.baseAddress!, count: $0.count)
-                }
-                applyCheckboxAttributes(
-                    for: CheckboxLineScanner.scan(line: line),
-                    storage: storage,
-                    lineStart: lineStart,
-                    lineLength: lineLength
-                )
+            if lineEnd > lineStart {
+                body(lineStart, String(decoding: units[lineStart..<lineEnd], as: UTF16.self))
             }
-
-            // Advance past the `\n` (or stop if past end).
             if lineEnd >= length { break }
             lineStart = lineEnd + 1
+        }
+    }
+
+    /// Walks `source` line-by-line, classifying each via `CheckboxLineScanner`,
+    /// and tags `.marcdownConcealed` / `.marcdownCheckbox` accordingly. This
+    /// is the only writer of `.marcdownCheckbox` in the entire pipeline.
+    private func applyCheckboxScannerPass(storage: NSTextStorage, source: String) {
+        forEachLine(in: source) { lineStart, line in
+            applyCheckboxAttributes(
+                for: CheckboxLineScanner.scan(line: line),
+                storage: storage,
+                lineStart: lineStart,
+                lineLength: (line as NSString).length
+            )
         }
     }
 
@@ -263,69 +266,69 @@ public final class MarkdownStyler {
     /// bullet / ordered markers. This is the only writer of
     /// `.marcdownListMarker` in the entire pipeline.
     private func applyListScannerPass(storage: NSTextStorage, source: String) {
-        let units = Array(source.utf16)
-        let length = units.count
-        var lineStart = 0
-        while lineStart <= length {
-            // Find lineEnd (the next `\n` or end of buffer).
-            var lineEnd = lineStart
-            while lineEnd < length, units[lineEnd] != 0x0A {
-                lineEnd += 1
+        forEachLine(in: source) { lineStart, line in
+            // `* * *` and `- - -` scan as bullets; the walker already
+            // tagged the line as a thematic break, so leave it alone.
+            // cmark anchors the node at the first non-blank character,
+            // so probe past any leading indentation.
+            let units = Array(line.utf16)
+            let firstNonBlank = units.firstIndex { $0 != 0x20 && $0 != 0x09 } ?? units.count
+            let isThematicBreak =
+                firstNonBlank < units.count
+                && storage.attribute(.marcdownThematicBreak, at: lineStart + firstNonBlank, effectiveRange: nil) != nil
+            guard !isThematicBreak else { return }
+            // Checkbox precedence with one exception: a `.complete`
+            // list shape (the user has a real `- ` / `1. ` marker)
+            // wins over a checkbox `.partial` — without this carve-out
+            // the line `- ` (typed but no `[` yet) would stay dimly
+            // concealed by the checkbox partial branch and never get
+            // its bullet anchor / marker tag. A `.complete` checkbox
+            // (`- [ ]` / `- [x]`) is owned by the checkbox pass
+            // exclusively.
+            let checkboxShape = CheckboxLineScanner.scan(line: line)
+            let listShape = ListLineScanner.scan(line: line)
+            let listOverrides: Bool
+            switch (checkboxShape, listShape) {
+            case (.none, _):
+                listOverrides = true
+            case (.partial, .complete):
+                listOverrides = true
+            default:
+                listOverrides = false
             }
+            if listOverrides {
+                applyListAttributes(
+                    for: listShape,
+                    storage: storage,
+                    lineStart: lineStart,
+                    lineLength: units.count
+                )
+            }
+        }
+    }
 
-            let lineLength = lineEnd - lineStart
-            if lineLength > 0 {
-                // `* * *` and `- - -` scan as bullets; the walker already
-                // tagged the line as a thematic break, so leave it alone.
-                // cmark anchors the node at the first non-blank character,
-                // so probe past any leading indentation.
-                var firstNonBlank = lineStart
-                while firstNonBlank < lineEnd, units[firstNonBlank] == 0x20 || units[firstNonBlank] == 0x09 {
-                    firstNonBlank += 1
-                }
-                if firstNonBlank < lineEnd,
-                    storage.attribute(.marcdownThematicBreak, at: firstNonBlank, effectiveRange: nil) != nil
+    /// `==text==` → highlight background on the content, delimiters concealed.
+    /// Skips code (fenced blocks via the tag, inline code via the monospaced
+    /// font already applied by the walker).
+    private func applyHighlightPass(storage: NSTextStorage, source: String) {
+        forEachLine(in: source) { lineStart, line in
+            guard storage.attribute(.marcdownCodeBlock, at: lineStart, effectiveRange: nil) == nil else { return }
+            for span in HighlightScanner.scan(line: line) {
+                let location = lineStart + span.location
+                guard span.length > 4, location + span.length <= storage.length else { continue }
+                if let font = storage.attribute(.font, at: location, effectiveRange: nil) as? NSFont,
+                    font.fontDescriptor.symbolicTraits.contains(.monoSpace)
                 {
-                    if lineEnd >= length { break }
-                    lineStart = lineEnd + 1
-                    continue
+                    continue  // ponytail: also skips highlights inside tables; revisit if it bites
                 }
-                let lineSlice = Array(units[lineStart..<lineEnd])
-                let line = lineSlice.withUnsafeBufferPointer {
-                    String(utf16CodeUnits: $0.baseAddress!, count: $0.count)
-                }
-                // Checkbox precedence with one exception: a `.complete`
-                // list shape (the user has a real `- ` / `1. ` marker)
-                // wins over a checkbox `.partial` — without this carve-out
-                // the line `- ` (typed but no `[` yet) would stay dimly
-                // concealed by the checkbox partial branch and never get
-                // its bullet anchor / marker tag. A `.complete` checkbox
-                // (`- [ ]` / `- [x]`) is owned by the checkbox pass
-                // exclusively.
-                let checkboxShape = CheckboxLineScanner.scan(line: line)
-                let listShape = ListLineScanner.scan(line: line)
-                let listOverrides: Bool
-                switch (checkboxShape, listShape) {
-                case (.none, _):
-                    listOverrides = true
-                case (.partial, .complete):
-                    listOverrides = true
-                default:
-                    listOverrides = false
-                }
-                if listOverrides {
-                    applyListAttributes(
-                        for: listShape,
-                        storage: storage,
-                        lineStart: lineStart,
-                        lineLength: lineLength
-                    )
-                }
+                storage.addAttribute(
+                    .backgroundColor,
+                    value: theme.highlight,
+                    range: NSRange(location: location + 2, length: span.length - 4)
+                )
+                applyConceal(storage: storage, range: NSRange(location: location, length: 2))
+                applyConceal(storage: storage, range: NSRange(location: location + span.length - 2, length: 2))
             }
-
-            // Advance past the `\n` (or stop if past end).
-            if lineEnd >= length { break }
-            lineStart = lineEnd + 1
         }
     }
 

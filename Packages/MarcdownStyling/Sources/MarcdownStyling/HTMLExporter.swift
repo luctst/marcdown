@@ -14,7 +14,7 @@ public enum HTMLExporter {
     ///   - title: Plain-text title; HTML-escaped before injection.
     /// - Returns: A standalone HTML5 document string starting with `<!DOCTYPE html>`.
     public static func render(markdown: String, title: String) -> String {
-        let body = HTMLFormatter.format(markdown)
+        let body = HTMLFormatter.format(markHighlights(in: markdown))
         let escapedTitle = htmlEscape(title)
 
         return """
@@ -32,6 +32,28 @@ public enum HTMLExporter {
             </body>
             </html>
             """
+    }
+
+    /// `==text==` → `<mark>text</mark>`. cmark passes inline HTML through, so
+    /// this pre-pass is enough. ponytail: also rewrites inside code spans;
+    /// switch to a post-AST rewrite if that ever matters.
+    static func markHighlights(in markdown: String) -> String {
+        markdown.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            let text = String(line)
+            let units = Array(text.utf16)
+            var rebuilt = ""
+            var cursor = 0
+            for span in HighlightScanner.scan(line: text) {
+                rebuilt += String(decoding: units[cursor..<span.location], as: UTF16.self)
+                rebuilt += "<mark>"
+                rebuilt += String(
+                    decoding: units[(span.location + 2)..<(span.location + span.length - 2)], as: UTF16.self)
+                rebuilt += "</mark>"
+                cursor = span.location + span.length
+            }
+            rebuilt += String(decoding: units[cursor...], as: UTF16.self)
+            return rebuilt
+        }.joined(separator: "\n")
     }
 
     // MARK: - Private
@@ -60,6 +82,7 @@ public enum HTMLExporter {
         blockquote { border-left: 4px solid rgba(127,127,127,.3); padding-left: 1rem; margin-left: 0; }
         h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin-top: 1.5rem; }
         img { max-width: 100%; height: auto; }
+        mark { background: rgba(255,214,10,.35); padding: 0 .1em; border-radius: 2px; }
 
         """
 }

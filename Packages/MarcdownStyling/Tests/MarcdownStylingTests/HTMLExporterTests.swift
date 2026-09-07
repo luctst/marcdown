@@ -109,4 +109,9 @@ struct HTMLExporterTests {
 
         #expect(output.contains("<a href=\"https://example.com\">link</a>"))
     }
+
+    @Test func highlightExportsAsMark() {
+        let html = HTMLExporter.render(markdown: "say ==hi== there", title: "t")
+        #expect(html.contains("say <mark>hi</mark> there"))
+    }
 }
