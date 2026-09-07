@@ -50,6 +50,12 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
     /// Bar colour for `.marcdownBlockquote` runs; set from `StylingTheme.quoteBar`.
     nonisolated(unsafe) var quoteBarColor: NSColor?
 
+    /// Per-draw deduplication for horizontal rules, same rationale as
+    /// `drawnCodeBlockRanges`.
+    private nonisolated(unsafe) var drawnRuleRanges: Set<NSRange> = []
+    /// Colour of the drawn horizontal rule; set from `StylingTheme.rule`.
+    nonisolated(unsafe) var ruleColor: NSColor?
+
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
         // Code-block container is drawn first so checkbox + list-marker
@@ -58,6 +64,7 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
         // and must never be visually clipped by a background fill).
         drawCodeBlockBackgrounds(forGlyphRange: glyphsToShow, at: origin)
         drawBlockquoteBars(forGlyphRange: glyphsToShow, at: origin)
+        drawThematicBreaks(forGlyphRange: glyphsToShow, at: origin)
         drawCheckboxIcons(forGlyphRange: glyphsToShow, at: origin)
         drawListMarkers(forGlyphRange: glyphsToShow, at: origin)
     }
@@ -371,6 +378,45 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
                         x: origin.x + 4, y: origin.y + bounding.origin.y, width: 3, height: bounding.height)
                     color.setFill()
                     NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5).fill()
+                }
+            }
+            probe = max(probe + 1, effective.location + effective.length)
+        }
+    }
+
+    // MARK: - Horizontal rule
+
+    /// A 1pt line across the container at the vertical middle of the
+    /// clear-painted `---` line fragment. Anchored on `lineFragmentRect`
+    /// (stable) rather than `boundingRect` (see class doc).
+    private nonisolated func drawThematicBreaks(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        drawnRuleRanges.removeAll(keepingCapacity: true)
+        guard let storage = textStorage, let container = textContainers.first else { return }
+        guard glyphsToShow.length > 0 else { return }
+        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        guard charRange.length > 0 else { return }
+
+        let storageLength = storage.length
+        let upper = min(charRange.location + charRange.length, storageLength)
+        let color = ruleColor ?? NSColor.separatorColor
+        var probe = charRange.location
+        while probe < upper {
+            var effective = NSRange(location: 0, length: 0)
+            let value = storage.attribute(
+                .marcdownThematicBreak,
+                at: probe,
+                longestEffectiveRange: &effective,
+                in: NSRange(location: 0, length: storageLength)
+            )
+            if let flag = value as? Bool, flag, effective.length > 0, !drawnRuleRanges.contains(effective) {
+                drawnRuleRanges.insert(effective)
+                let glyphs = glyphRange(forCharacterRange: effective, actualCharacterRange: nil)
+                if glyphs.length > 0 {
+                    let fragment = lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil)
+                    let rect = NSRect(
+                        x: origin.x, y: origin.y + fragment.midY - 0.5, width: container.size.width, height: 1)
+                    color.setFill()
+                    rect.fill()
                 }
             }
             probe = max(probe + 1, effective.location + effective.length)

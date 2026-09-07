@@ -322,7 +322,24 @@ struct StyleWalker: @preconcurrency MarkupWalker {
 
     mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {
         guard let range = index.nsRange(thematicBreak.range), range.length > 0 else { return }
-        addAttributes([.foregroundColor: theme.dim], range: range)
+        let clamped = clampedToStorage(range)
+        guard clamped.length > 0 else { return }
+        // Clear-paint (never `.null`-conceal): the rule is the whole line, so
+        // it must keep an advance for the caret to land on. The layout
+        // manager draws the rule in its place.
+        storage.removeAttribute(.marcdownConcealed, range: clamped)
+        storage.addAttributes(
+            [
+                .foregroundColor: NSColor.clear,
+                .font: monospacedFont(),
+                .marcdownThematicBreak: true,
+            ],
+            range: clamped
+        )
+        ParagraphStyling.mutate(in: storage, range: clamped) { style in
+            style.paragraphSpacingBefore = 8
+            style.paragraphSpacing = 8
+        }
     }
 
     mutating func visitUnorderedList(_ unorderedList: UnorderedList) {

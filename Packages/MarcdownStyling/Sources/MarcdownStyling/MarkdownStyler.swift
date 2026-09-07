@@ -74,6 +74,7 @@ public final class MarkdownStyler {
             storage.removeAttribute(.marcdownListMarker, range: fullRange)
             storage.removeAttribute(.marcdownCodeBlock, range: fullRange)
             storage.removeAttribute(.marcdownBlockquote, range: fullRange)
+            storage.removeAttribute(.marcdownThematicBreak, range: fullRange)
         }
 
         var walker = StyleWalker(
@@ -123,6 +124,7 @@ public final class MarkdownStyler {
         // a bullet circle / number / checkbox icon on this line.
         storage.removeAttribute(.marcdownListMarker, range: range)
         storage.removeAttribute(.marcdownCheckbox, range: range)
+        storage.removeAttribute(.marcdownThematicBreak, range: range)
 
         // Strip concealment and repaint any previously concealed OR
         // clear-painted run in the dim theme color so the raw syntax becomes
@@ -273,6 +275,13 @@ public final class MarkdownStyler {
 
             let lineLength = lineEnd - lineStart
             if lineLength > 0 {
+                // `* * *` and `- - -` scan as bullets; the walker already
+                // tagged the line as a thematic break, so leave it alone.
+                if storage.attribute(.marcdownThematicBreak, at: lineStart, effectiveRange: nil) != nil {
+                    if lineEnd >= length { break }
+                    lineStart = lineEnd + 1
+                    continue
+                }
                 let lineSlice = Array(units[lineStart..<lineEnd])
                 let line = lineSlice.withUnsafeBufferPointer {
                     String(utf16CodeUnits: $0.baseAddress!, count: $0.count)

@@ -43,6 +43,7 @@ public struct NoteEditorView: NSViewRepresentable {
         // layout manager free of `@MainActor` coupling for its draw path.
         layoutManager.codeBlockFillColor = context.coordinator.codeBlockFillColor
         layoutManager.quoteBarColor = context.coordinator.quoteBarColor
+        layoutManager.ruleColor = context.coordinator.ruleColor
         storage.addLayoutManager(layoutManager)
 
         // The concealment delegate suppresses glyphs whose characters are
@@ -131,6 +132,8 @@ public struct NoteEditorView: NSViewRepresentable {
         var codeBlockFillColor: NSColor { styler.theme.codeBlockBackground }
         /// Blockquote bar colour, sourced from the same theme as the styler.
         var quoteBarColor: NSColor { styler.theme.quoteBar }
+        /// Horizontal rule colour, sourced from the same theme as the styler.
+        var ruleColor: NSColor { styler.theme.rule }
         /// Seeds the text view's default/typing paragraph style so the caret
         /// on an empty note is as tall as the styler's line boxes.
         var baseParagraphStyle: NSParagraphStyle { styler.baseParagraphStyle }

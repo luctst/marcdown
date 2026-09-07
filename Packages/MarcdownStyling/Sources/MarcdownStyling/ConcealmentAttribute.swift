@@ -53,6 +53,11 @@ extension NSAttributedString.Key {
     /// Value is a `Bool`. Written by `StyleWalker.visitBlockQuote`; read by
     /// the editor's layout manager to draw one vertical bar beside the run.
     public static let marcdownBlockquote = NSAttributedString.Key("marcdownBlockquote")
+
+    /// Tags the characters of a thematic break (`---`, `***`, `___`, spaced
+    /// variants). Value is a `Bool`. Written by `StyleWalker.visitThematicBreak`;
+    /// read by the layout manager to draw a rule; stripped on the focus line.
+    public static let marcdownThematicBreak = NSAttributedString.Key("marcdownThematicBreak")
 }
 
 /// Kind of plain list marker tagged by the list-scanner pass.
