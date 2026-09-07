@@ -277,7 +277,15 @@ public final class MarkdownStyler {
             if lineLength > 0 {
                 // `* * *` and `- - -` scan as bullets; the walker already
                 // tagged the line as a thematic break, so leave it alone.
-                if storage.attribute(.marcdownThematicBreak, at: lineStart, effectiveRange: nil) != nil {
+                // cmark anchors the node at the first non-blank character,
+                // so probe past any leading indentation.
+                var firstNonBlank = lineStart
+                while firstNonBlank < lineEnd, units[firstNonBlank] == 0x20 || units[firstNonBlank] == 0x09 {
+                    firstNonBlank += 1
+                }
+                if firstNonBlank < lineEnd,
+                    storage.attribute(.marcdownThematicBreak, at: firstNonBlank, effectiveRange: nil) != nil
+                {
                     if lineEnd >= length { break }
                     lineStart = lineEnd + 1
                     continue

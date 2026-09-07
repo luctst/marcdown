@@ -30,6 +30,12 @@ struct ThematicBreakTests {
         #expect(storage.attribute(.marcdownThematicBreak, at: 0, effectiveRange: nil) as? Bool == true)
     }
 
+    @Test func indentedSpacedRuleIsNotTreatedAsBullet() {
+        let storage = styledStorage("  - - -")
+        #expect(storage.attribute(.marcdownListMarker, at: 2, effectiveRange: nil) == nil)
+        #expect(storage.attribute(.marcdownThematicBreak, at: 2, effectiveRange: nil) as? Bool == true)
+    }
+
     @Test func focusedRuleShowsDimDashesAndDropsTag() {
         let storage = styledStorage("---", focus: FocusLine(lineStart: 0, lineLength: 3))
         #expect(storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor == StylingTheme.system.dim)
