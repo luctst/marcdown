@@ -15,6 +15,15 @@ public final class MarkdownStyler {
     public let theme: StylingTheme
     private let baseFont: NSFont
 
+    /// Advance of one clear-painted marker cell (markers are forced
+    /// monospaced) and of one base-font space — the two units a list prefix
+    /// is made of. Computed once; fonts don't change during a styler's life.
+    private lazy var monoCellWidth: CGFloat = {
+        let mono = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
+        return ("0" as NSString).size(withAttributes: [.font: mono]).width
+    }()
+    private lazy var spaceWidth: CGFloat = (" " as NSString).size(withAttributes: [.font: baseFont]).width
+
     public init(
         theme: StylingTheme = .system,
         baseFont: NSFont = NSFont(name: "AvenirNext-Regular", size: 15) ?? NSFont.systemFont(ofSize: 15)
@@ -187,7 +196,12 @@ public final class MarkdownStyler {
             let location = lineStart + indentLength
             let range = NSRange(location: location, length: concealLength)
             applyConceal(storage: storage, range: range)
-            applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+            applyListParagraphStyle(
+                storage: storage,
+                lineStart: lineStart,
+                lineLength: lineLength,
+                hangingIndent: 0
+            )
         case .complete(let indentLength, let bracketLocation, let state):
             // Conceal "- " (bullet + space) at start.
             applyConceal(
@@ -229,7 +243,12 @@ public final class MarkdownStyler {
             )
             storage.addAttribute(.font, value: markerFont, range: markerRange)
 
-            applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+            applyListParagraphStyle(
+                storage: storage,
+                lineStart: lineStart,
+                lineLength: lineLength,
+                hangingIndent: CGFloat(indentLength) * spaceWidth + 2 * monoCellWidth + spaceWidth
+            )
         }
     }
 
@@ -308,7 +327,12 @@ public final class MarkdownStyler {
             // the chars and either collapses the line or shows nothing, which makes
             // the cursor appear to misbehave. Once the trailing space lands and the
             // scanner returns `.complete`, the proper marker treatment kicks in.
-            applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+            applyListParagraphStyle(
+                storage: storage,
+                lineStart: lineStart,
+                lineLength: lineLength,
+                hangingIndent: 0
+            )
         case .complete(let indentLength, let markerLength, let kind):
             switch kind {
             case .bullet(let depth):
@@ -342,7 +366,12 @@ public final class MarkdownStyler {
                     range: markerRange
                 )
 
-                applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+                applyListParagraphStyle(
+                    storage: storage,
+                    lineStart: lineStart,
+                    lineLength: lineLength,
+                    hangingIndent: CGFloat(indentLength) * spaceWidth + CGFloat(markerLength) * monoCellWidth
+                )
             case .ordered(let number, let depth):
                 // Marker layout is `<digits>.<space>` — markerLength = digits + 2.
                 let digitCount = markerLength - 2
@@ -376,7 +405,12 @@ public final class MarkdownStyler {
                     range: markerRange
                 )
 
-                applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+                applyListParagraphStyle(
+                    storage: storage,
+                    lineStart: lineStart,
+                    lineLength: lineLength,
+                    hangingIndent: CGFloat(indentLength) * spaceWidth + CGFloat(markerLength) * monoCellWidth
+                )
             }
         }
     }
@@ -391,10 +425,14 @@ public final class MarkdownStyler {
         storage.addAttribute(.marcdownConcealedLogical, value: true, range: clamped)
     }
 
-    private func applyParagraphSpacing(
+    /// List lines get 4pt of air above and hang wrapped text under the first
+    /// body character. `hangingIndent` is 0 for partial markers (nothing to
+    /// hang under yet).
+    private func applyListParagraphStyle(
         storage: NSTextStorage,
         lineStart: Int,
-        lineLength: Int
+        lineLength: Int,
+        hangingIndent: CGFloat
     ) {
         let storageLength = storage.length
         let upper = min(lineStart + lineLength, storageLength)
@@ -402,6 +440,8 @@ public final class MarkdownStyler {
         guard upper > lower else { return }
         ParagraphStyling.mutate(in: storage, range: NSRange(location: lower, length: upper - lower)) { style in
             style.paragraphSpacingBefore = 4
+            style.firstLineHeadIndent = 0
+            style.headIndent = hangingIndent
         }
     }
 
