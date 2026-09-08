@@ -878,9 +878,51 @@ public struct NoteEditorView: NSViewRepresentable {
                 return apply(
                     InlineFormat.linkOutcome(buffer: buffer, selection: selection, url: url),
                     undoName: "Link", in: textView)
-            case .heading, .bulletList, .orderedList, .taskList, .quote, .codeBlock, .divider:
-                return false  // Task 9
+            default:
+                return performBlock(command, in: textView)
             }
+        }
+
+        private func performBlock(_ command: EditorCommand, in textView: NSTextView) -> Bool {
+            guard let storage = textView.textStorage else { return false }
+            let buffer = storage.string
+            let selection = textView.selectedRange()
+            let kind: BlockKind
+            let undoName: String
+            switch command {
+            case .heading(let level):
+                kind = level == 0 ? .paragraph : .heading(level)
+                undoName = level == 0 ? "Paragraph" : "Heading \(level)"
+            case .bulletList:
+                kind = .bullet
+                undoName = "Bullet List"
+            case .orderedList:
+                kind = .ordered
+                undoName = "Numbered List"
+            case .taskList:
+                kind = .task
+                undoName = "Task List"
+            case .quote:
+                kind = .quote
+                undoName = "Quote"
+            case .codeBlock:
+                return apply(
+                    BlockFormat.codeBlockOutcome(buffer: buffer, selection: selection),
+                    undoName: "Code Block", in: textView)
+            case .divider:
+                return apply(
+                    BlockFormat.dividerOutcome(buffer: buffer, selection: selection),
+                    undoName: "Divider", in: textView)
+            default:
+                return false
+            }
+            let handled = apply(
+                BlockFormat.toggleOutcome(buffer: buffer, selection: selection, kind: kind),
+                undoName: undoName, in: textView)
+            if handled {
+                runRenumberPass(in: textView, around: textView.selectedRange().location)
+            }
+            return handled
         }
 
         /// The one place edits from pure helpers touch the storage: the
