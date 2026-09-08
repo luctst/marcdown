@@ -41,6 +41,15 @@ struct SlashMenuTests {
         #expect(harness.coordinator.didRequestSlashMenu == true)
     }
 
+    @Test func slashInsideFencedCodeDoesNotSignal() {
+        let harness = EditorHarness.make(buffer: "```\n\n```")
+        harness.setCaret(4)
+        let allow = harness.coordinator.textView(
+            harness.textView, shouldChangeTextIn: NSRange(location: 4, length: 0), replacementString: "/")
+        #expect(allow == true)
+        #expect(harness.coordinator.didRequestSlashMenu == false)
+    }
+
     @Test func slashAfterTextDoesNotSignal() {
         let harness = EditorHarness.make(buffer: "ab")
         harness.setCaret(2)

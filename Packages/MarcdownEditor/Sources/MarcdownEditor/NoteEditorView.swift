@@ -853,7 +853,11 @@ public struct NoteEditorView: NSViewRepresentable {
             }
             if replacement == "/" {
                 let prefix = linePrefix(before: affectedCharRange.location, in: buffer)
-                didRequestSlashMenu = prefix.allSatisfy { $0 == " " || $0 == "\t" }
+                // Inside a fence `/usr/local/bin` is a path, not a menu request.
+                let probe = min(affectedCharRange.location, storage.length - 1)
+                let inCodeBlock =
+                    probe >= 0 && storage.attribute(.marcdownCodeBlock, at: probe, effectiveRange: nil) != nil
+                didRequestSlashMenu = !inCodeBlock && prefix.allSatisfy { $0 == " " || $0 == "\t" }
                 if didRequestSlashMenu {
                     // Deferred one tick so the overlay state change happens
                     // outside this text-change transaction.
@@ -992,6 +996,7 @@ public struct NoteEditorView: NSViewRepresentable {
             guard lineEnd == cursor else { return }
             let slashRange = NSRange(location: cursor - 1, length: 1)
             guard textView.shouldChangeText(in: slashRange, replacementString: "") else { return }
+            textView.undoManager?.setActionName("Remove Slash")
             storage.replaceCharacters(in: slashRange, with: "")
             textView.didChangeText()
             textView.setSelectedRange(NSRange(location: cursor - 1, length: 0))
