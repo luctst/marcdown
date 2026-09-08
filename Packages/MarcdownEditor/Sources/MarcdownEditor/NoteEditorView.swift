@@ -312,13 +312,11 @@ public struct NoteEditorView: NSViewRepresentable {
             if textView.hasMarkedText() { return false }
             let selection = textView.selectedRange()
             if selection.length > 0 {
-                let handled = apply(
+                return applyThenRenumber(
                     ListIndentation.indentOutcome(buffer: storage.string, selection: selection),
                     undoName: "Indent List Items",
                     in: textView
                 )
-                if handled { runRenumberPass(in: textView, around: textView.selectedRange().location) }
-                return handled
             }
             let cursor = selection.location
             switch ListIndentation.indentOutcome(buffer: storage.string, cursorOffset: cursor) {
@@ -344,13 +342,11 @@ public struct NoteEditorView: NSViewRepresentable {
             if textView.hasMarkedText() { return false }
             let selection = textView.selectedRange()
             if selection.length > 0 {
-                let handled = apply(
+                return applyThenRenumber(
                     ListIndentation.outdentOutcome(buffer: storage.string, selection: selection),
                     undoName: "Outdent List Items",
                     in: textView
                 )
-                if handled { runRenumberPass(in: textView, around: textView.selectedRange().location) }
-                return handled
             }
             let cursor = selection.location
             switch ListIndentation.outdentOutcome(buffer: storage.string, cursorOffset: cursor) {
@@ -930,25 +926,28 @@ public struct NoteEditorView: NSViewRepresentable {
             default:
                 return false
             }
-            let handled = apply(
+            return applyThenRenumber(
                 BlockFormat.toggleOutcome(buffer: buffer, selection: selection, kind: kind),
                 undoName: undoName, in: textView)
-            if handled {
-                // The renumber pass collapses the selection to a caret; grow
-                // the original range by whatever the pass added or removed so
-                // a multi-line selection still covers the rewritten lines.
-                // ponytail: assumes width changes land inside the selection;
-                // a neighbour outside it crossing a digit boundary (9→10)
-                // shifts the range by that delta. Map both ends if it bites.
-                let selected = textView.selectedRange()
-                let lengthBefore = storage.length
-                runRenumberPass(in: textView, around: selected.location)
-                if selected.length > 0 {
-                    let length = selected.length + (storage.length - lengthBefore)
-                    textView.setSelectedRange(NSRange(location: selected.location, length: length))
-                }
+        }
+
+        /// Applies `outcome`, renumbers the ordered run around the result, and
+        /// keeps a non-empty selection spanning the same lines (grown by the
+        /// renumber pass's length delta).
+        /// ponytail: assumes width changes land inside the selection;
+        /// a neighbour outside it crossing a digit boundary (9→10)
+        /// shifts the range by that delta. Map both ends if it bites.
+        private func applyThenRenumber(_ outcome: TextEditOutcome, undoName: String, in textView: NSTextView) -> Bool {
+            guard let storage = textView.textStorage else { return false }
+            guard apply(outcome, undoName: undoName, in: textView) else { return false }
+            let selected = textView.selectedRange()
+            let lengthBefore = storage.length
+            runRenumberPass(in: textView, around: selected.location)
+            if selected.length > 0 {
+                let length = selected.length + (storage.length - lengthBefore)
+                textView.setSelectedRange(NSRange(location: selected.location, length: length))
             }
-            return handled
+            return true
         }
 
         /// The one place edits from pure helpers touch the storage: the

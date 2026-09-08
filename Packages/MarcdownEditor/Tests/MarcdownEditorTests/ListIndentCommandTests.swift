@@ -183,6 +183,17 @@ struct ListIndentCommandTests {
         #expect(harness.storage.string == "- a\n- b")
     }
 
+    @Test func backtabWithSelectionKeepsSelectionAfterRenumber() {
+        let harness = makeHarness(buffer: "1. a\n  1. x\n  2. y\n2. b")
+        harness.textView.setSelectedRange(NSRange(location: 5, length: 12))
+
+        let handled = harness.send(#selector(NSResponder.insertBacktab(_:)))
+
+        #expect(handled == true)
+        #expect(harness.storage.string == "1. a\n2. x\n3. y\n4. b")
+        #expect(harness.textView.selectedRange() == NSRange(location: 5, length: 9))
+    }
+
     // MARK: - Harness
 
     private func makeHarness(buffer: String) -> Harness {
