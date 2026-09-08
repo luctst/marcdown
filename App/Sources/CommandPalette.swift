@@ -6,6 +6,8 @@ import SwiftUI
 enum PaletteSubMode: Equatable, Sendable {
     case root
     case exportFormat
+    /// Opened by typing `/` at the start of a line: only the Markdown rows.
+    case blockInsert
 }
 
 /// Three flavors of palette action: a leaf invokes a closure, a submenu
@@ -100,6 +102,7 @@ func paletteSubModeAfterEscape(current: PaletteSubMode) -> PaletteSubMode? {
     switch current {
     case .root: return nil
     case .exportFormat: return .root
+    case .blockInsert: return nil
     }
 }
 
@@ -185,6 +188,8 @@ struct CommandPalette: View {
             return actions
         case .exportFormat:
             return makeFormatChooserActions(onExport: onExport)
+        case .blockInsert:
+            return actions.filter { $0.section == .markdown }
         }
     }
 
@@ -196,6 +201,7 @@ struct CommandPalette: View {
         switch subMode {
         case .root: return "Search for actions..."
         case .exportFormat: return "Choose a format"
+        case .blockInsert: return "Insert block"
         }
     }
 
@@ -203,6 +209,7 @@ struct CommandPalette: View {
         switch subMode {
         case .root: return "command"
         case .exportFormat: return "square.and.arrow.up"
+        case .blockInsert: return "slash.circle"
         }
     }
 
@@ -215,6 +222,8 @@ struct CommandPalette: View {
             return trimmed.isEmpty
                 ? "No matching formats"
                 : "No matches for \"\(trimmed)\""
+        case .blockInsert:
+            return "No matching blocks"
         }
     }
 
@@ -226,6 +235,8 @@ struct CommandPalette: View {
             return "Search actions, \(count) result\(plural)"
         case .exportFormat:
             return "Choose a format, \(count) result\(plural)"
+        case .blockInsert:
+            return "Insert block, \(count) result\(plural)"
         }
     }
 

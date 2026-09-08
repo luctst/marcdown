@@ -69,7 +69,7 @@ struct CommandPaletteFilterTests {
     /// plus the markdown reference rows. Used to assert the filter slices
     /// across both sections rather than within one.
     private func makeMixedActions() -> [PaletteAction] {
-        makeActions() + makeMarkdownReferenceRows()
+        makeActions() + makeMarkdownRows(setOverlay: { _ in }, perform: { _ in })
     }
 
     @Test("Filter spans both sections — \"bold\" matches only the markdown row")

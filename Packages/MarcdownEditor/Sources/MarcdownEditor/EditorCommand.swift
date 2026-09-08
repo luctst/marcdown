@@ -61,3 +61,19 @@ public enum EditorCommand: Hashable, Sendable {
         }
     }
 }
+
+/// Keys used in the `userInfo` of `.marcdownEditorPerformCommand`.
+public enum EditorCommandNotification {
+    public static let key = "command"
+}
+
+extension Notification.Name {
+    /// Posted by the App (palette rows, `/` menu) with
+    /// `userInfo[EditorCommandNotification.key] = EditorCommand`. The editor's
+    /// coordinator performs it on the current selection.
+    public static let marcdownEditorPerformCommand = Notification.Name("MarcdownEditorPerformCommand")
+
+    /// Posted by the editor when the user types `/` at the start of a line.
+    /// The App opens the command palette in its block-insert sub-mode.
+    public static let marcdownEditorSlashMenu = Notification.Name("MarcdownEditorSlashMenu")
+}

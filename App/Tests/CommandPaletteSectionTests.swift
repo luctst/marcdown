@@ -66,78 +66,82 @@ struct CommandPaletteSectionTests {
         #expect(action.section == .markdown)
     }
 
-    // MARK: - makeMarkdownReferenceRows factory
+    // MARK: - makeMarkdownRows factory
 
-    @Test("Markdown reference factory returns exactly 10 rows")
-    func markdownReferenceRowsCount() {
-        let rows = makeMarkdownReferenceRows()
-        #expect(rows.count == 10)
+    @Test("Markdown factory returns exactly 15 rows")
+    func markdownRowsCount() {
+        let rows = makeMarkdownRows(setOverlay: { _ in }, perform: { _ in })
+        #expect(rows.count == 15)
     }
 
-    @Test("Markdown reference rows are tagged section .markdown")
-    func markdownReferenceRowsAreTaggedMarkdown() {
-        let rows = makeMarkdownReferenceRows()
+    @Test("Markdown rows are tagged section .markdown")
+    func markdownRowsAreTaggedMarkdown() {
+        let rows = makeMarkdownRows(setOverlay: { _ in }, perform: { _ in })
         #expect(rows.allSatisfy { $0.section == .markdown })
     }
 
-    @Test("Markdown reference rows are kind .reference")
-    func markdownReferenceRowsAreReferenceKind() {
-        let rows = makeMarkdownReferenceRows()
-        for row in rows {
-            if case .reference = row.kind {
-                continue
-            } else {
-                Issue.record("Expected .reference kind for row \(row.id)")
-            }
-        }
+    @Test("Markdown rows are leaf commands")
+    func markdownRowsAreLeafKind() {
+        let rows = makeMarkdownRows(setOverlay: { _ in }, perform: { _ in })
+        #expect(rows.allSatisfy { $0.handler != nil })
     }
 
-    @Test("Markdown reference row titles match plan §3 ordering")
-    func markdownReferenceRowsTitlesMatchPlan() {
-        let rows = makeMarkdownReferenceRows()
+    @Test("Markdown row titles match the command order")
+    func markdownRowsTitlesMatchPlan() {
+        let rows = makeMarkdownRows(setOverlay: { _ in }, perform: { _ in })
         #expect(
             rows.map(\.title) == [
                 "Bold",
                 "Italic",
-                "Heading",
-                "List",
-                "Ordered list",
+                "Heading 1",
+                "Heading 2",
+                "Heading 3",
+                "Bullet list",
+                "Numbered list",
+                "Task list",
+                "Quote",
                 "Inline code",
                 "Code block",
                 "Link",
-                "Quote",
                 "Strikethrough",
+                "Highlight",
+                "Divider",
             ])
     }
 
-    @Test("Markdown reference row syntax chips match plan §3")
-    func markdownReferenceRowsShortcutLabelsMatchPlan() {
-        let rows = makeMarkdownReferenceRows()
+    @Test("Markdown row shortcut chips match the editor chord table")
+    func markdownRowsShortcutLabelsMatchPlan() {
+        let rows = makeMarkdownRows(setOverlay: { _ in }, perform: { _ in })
         #expect(
             rows.map(\.shortcutLabel) == [
-                "**x**",
-                "*x*",
-                "# x",
-                "- x",
-                "1. x",
-                "`x`",
-                "```x```",
-                "[x](y)",
-                "> x",
-                "~~x~~",
+                "⌘B",
+                "⌘I",
+                "⌥⌘1",
+                "⌥⌘2",
+                "⌥⌘3",
+                "⇧⌘L",
+                "⇧⌘N",
+                "⇧⌘T",
+                "⇧⌘B",
+                "⌘E",
+                "",
+                "⇧⌘K",
+                "⇧⌘X",
+                "⇧⌘H",
+                "",
             ])
     }
 
-    @Test("Markdown reference row ids are unique and stable")
-    func markdownReferenceRowIdsAreUnique() {
-        let rows = makeMarkdownReferenceRows()
+    @Test("Markdown row ids are unique and stable")
+    func markdownRowIdsAreUnique() {
+        let rows = makeMarkdownRows(setOverlay: { _ in }, perform: { _ in })
         let ids = Set(rows.map(\.id))
         #expect(ids.count == rows.count)
     }
 
     // MARK: - makePaletteActions composition
 
-    @Test("makePaletteActions appends markdown reference rows after commands")
+    @Test("makePaletteActions appends markdown rows after commands")
     func makePaletteActionsAppendsMarkdownRows() {
         let actions = makePaletteActions(
             setOverlay: { _ in },
@@ -146,7 +150,8 @@ struct CommandPaletteSectionTests {
             duplicate: {},
             delete: {},
             prev: {},
-            next: {}
+            next: {},
+            perform: { _ in }
         )
 
         let commandIds = actions.filter { $0.section == .commands }.map(\.id)
@@ -155,7 +160,7 @@ struct CommandPaletteSectionTests {
         // Commands appear in their existing order, then markdown rows.
         #expect(commandIds.first == "new-note")
         #expect(commandIds.last == "export")
-        #expect(markdownIds.count == 10)
+        #expect(markdownIds.count == 15)
 
         // Order: every command must precede every markdown row.
         let firstMarkdownIndex = actions.firstIndex(where: { $0.section == .markdown })
@@ -172,7 +177,8 @@ struct CommandPaletteSectionTests {
             duplicate: {},
             delete: {},
             prev: {},
-            next: {}
+            next: {},
+            perform: { _ in }
         )
 
         let existingCommandIds: Set<String> = [
@@ -188,8 +194,21 @@ struct CommandPaletteSectionTests {
 
     @Test("Reference rows are not actionable")
     func referenceRowsAreNotActionable() {
-        let rows = makeMarkdownReferenceRows()
-        #expect(rows.allSatisfy { !$0.isActionable })
+        let action = PaletteAction(
+            id: "ref",
+            title: "Bold",
+            icon: "bold",
+            shortcutLabel: "**x**",
+            kind: .reference,
+            section: .markdown
+        )
+        #expect(!action.isActionable)
+    }
+
+    @Test("Markdown rows are actionable")
+    func markdownRowsAreActionable() {
+        let rows = makeMarkdownRows(setOverlay: { _ in }, perform: { _ in })
+        #expect(rows.allSatisfy { $0.isActionable })
     }
 
     @Test("Leaf rows are actionable")

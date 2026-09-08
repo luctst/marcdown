@@ -149,6 +149,10 @@ public struct NoteEditorView: NSViewRepresentable {
         /// nonisolated `deinit` can read the token to unregister; access from
         /// `init` and the observer block stays on `MainActor`.
         private nonisolated(unsafe) var focusObserver: NSObjectProtocol?
+        private nonisolated(unsafe) var commandObserver: NSObjectProtocol?
+        /// Set when the last `shouldChangeText` posted the slash-menu
+        /// notification. Read by tests; the App reacts to the notification.
+        private(set) var didRequestSlashMenu = false
         /// The line the last restyle revealed. Caret moves inside that line
         /// don't change what is concealed, so `textViewDidChangeSelection`
         /// skips the full re-parse for them.
@@ -178,11 +182,25 @@ public struct NoteEditorView: NSViewRepresentable {
                     self?.reclaimFirstResponder()
                 }
             }
+            commandObserver = NotificationCenter.default.addObserver(
+                forName: .marcdownEditorPerformCommand,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                let command = notification.userInfo?[EditorCommandNotification.key] as? EditorCommand
+                MainActor.assumeIsolated {
+                    guard let self, let command else { return }
+                    self.perform(command)
+                }
+            }
         }
 
         deinit {
             if let focusObserver {
                 NotificationCenter.default.removeObserver(focusObserver)
+            }
+            if let commandObserver {
+                NotificationCenter.default.removeObserver(commandObserver)
             }
         }
 
@@ -808,6 +826,17 @@ public struct NoteEditorView: NSViewRepresentable {
             if replacement == " " {
                 return allowSpaceOrExpandCheckbox(in: textView, storage: storage, cursor: affectedCharRange.location)
             }
+            if replacement == "/" {
+                let prefix = linePrefix(before: affectedCharRange.location, in: buffer)
+                didRequestSlashMenu = prefix.allSatisfy { $0 == " " || $0 == "\t" }
+                if didRequestSlashMenu {
+                    // Deferred one tick so the overlay state change happens
+                    // outside this text-change transaction.
+                    Task { @MainActor in
+                        NotificationCenter.default.post(name: .marcdownEditorSlashMenu, object: nil)
+                    }
+                }
+            }
             return true
         }
 
@@ -886,6 +915,7 @@ public struct NoteEditorView: NSViewRepresentable {
         func perform(_ command: EditorCommand) -> Bool {
             guard let textView, let storage else { return false }
             if textView.hasMarkedText() { return false }
+            consumeSlashTrigger(in: textView)
             let buffer = storage.string
             let selection = textView.selectedRange()
             switch command {
@@ -919,6 +949,27 @@ public struct NoteEditorView: NSViewRepresentable {
             default:
                 return performBlock(command, in: textView)
             }
+        }
+
+        /// If the caret line is exactly `/` (after optional indent) the user
+        /// got here through the slash menu: delete the slash so the block
+        /// command lands on a clean line. Stateless on purpose — Escape
+        /// leaves the `/` in place like Notion, and any other line is untouched.
+        private func consumeSlashTrigger(in textView: NSTextView) {
+            guard let storage = textView.textStorage else { return }
+            let cursor = textView.selectedRange().location
+            let prefix = linePrefix(before: cursor, in: storage.string)
+            let trimmed = prefix.drop(while: { $0 == " " || $0 == "\t" })
+            guard trimmed == "/" else { return }
+            let units = Array(storage.string.utf16)
+            var lineEnd = cursor
+            while lineEnd < units.count, units[lineEnd] != 0x0A { lineEnd += 1 }
+            guard lineEnd == cursor else { return }
+            let slashRange = NSRange(location: cursor - 1, length: 1)
+            guard textView.shouldChangeText(in: slashRange, replacementString: "") else { return }
+            storage.replaceCharacters(in: slashRange, with: "")
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: cursor - 1, length: 0))
         }
 
         private func performBlock(_ command: EditorCommand, in textView: NSTextView) -> Bool {
