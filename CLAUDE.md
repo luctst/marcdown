@@ -39,7 +39,12 @@ swift test --package-path Packages/MarcdownCore
 
 # Styling tests (attribute application, LineOffsetIndex)
 swift test --package-path Packages/MarcdownStyling
+
+# Editor tests (command routing, formatting commands)
+swift test --package-path Packages/MarcdownEditor
 ```
+
+If `xcode-select` points at the Command Line Tools, prefix `swift` commands with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
 
 Tests use Swift Testing (`@Test`, `@Suite`, `#expect`) — not XCTest.
 
