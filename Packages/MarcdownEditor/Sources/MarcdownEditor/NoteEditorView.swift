@@ -311,9 +311,15 @@ public struct NoteEditorView: NSViewRepresentable {
             guard let storage = textView.textStorage else { return false }
             if textView.hasMarkedText() { return false }
             let selection = textView.selectedRange()
-            // Selection-based indent (multiple lines) — TODO. For now, only
-            // handle the caret case; with a selection, fall through.
-            if selection.length > 0 { return false }
+            if selection.length > 0 {
+                let handled = apply(
+                    ListIndentation.indentOutcome(buffer: storage.string, selection: selection),
+                    undoName: "Indent List Items",
+                    in: textView
+                )
+                if handled { runRenumberPass(in: textView, around: textView.selectedRange().location) }
+                return handled
+            }
             let cursor = selection.location
             switch ListIndentation.indentOutcome(buffer: storage.string, cursorOffset: cursor) {
             case .noOp:
@@ -337,7 +343,15 @@ public struct NoteEditorView: NSViewRepresentable {
             guard let storage = textView.textStorage else { return false }
             if textView.hasMarkedText() { return false }
             let selection = textView.selectedRange()
-            if selection.length > 0 { return false }
+            if selection.length > 0 {
+                let handled = apply(
+                    ListIndentation.outdentOutcome(buffer: storage.string, selection: selection),
+                    undoName: "Outdent List Items",
+                    in: textView
+                )
+                if handled { runRenumberPass(in: textView, around: textView.selectedRange().location) }
+                return handled
+            }
             let cursor = selection.location
             switch ListIndentation.outdentOutcome(buffer: storage.string, cursorOffset: cursor) {
             case .noOp:

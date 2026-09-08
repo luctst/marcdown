@@ -160,6 +160,29 @@ struct ListIndentCommandTests {
         #expect(harness.textView.selectedRange() == NSRange(location: 8, length: 0))
     }
 
+    // MARK: - Tab / Shift-Tab over a multi-line selection
+
+    @Test func tabWithSelectionIndentsAllSelectedListLines() {
+        let harness = makeHarness(buffer: "- a\n- b")
+        harness.textView.setSelectedRange(NSRange(location: 0, length: 7))
+
+        let handled = harness.send(#selector(NSResponder.insertTab(_:)))
+
+        #expect(handled == true)
+        #expect(harness.storage.string == "  - a\n  - b")
+        #expect(harness.textView.selectedRange() == NSRange(location: 0, length: 11))
+    }
+
+    @Test func backtabWithSelectionOutdentsAllSelectedListLines() {
+        let harness = makeHarness(buffer: "  - a\n  - b")
+        harness.textView.setSelectedRange(NSRange(location: 0, length: 11))
+
+        let handled = harness.send(#selector(NSResponder.insertBacktab(_:)))
+
+        #expect(handled == true)
+        #expect(harness.storage.string == "- a\n- b")
+    }
+
     // MARK: - Harness
 
     private func makeHarness(buffer: String) -> Harness {

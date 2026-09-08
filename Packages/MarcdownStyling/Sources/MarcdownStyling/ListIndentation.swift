@@ -84,6 +84,49 @@ public enum ListIndentation {
         )
     }
 
+    // MARK: - Selection-based indent / outdent
+
+    /// Tab with a selection: indent every list/task line among the touched
+    /// lines by two spaces. `.noOp` if none of them is a list line. The new
+    /// selection covers the rewritten lines.
+    public static func indentOutcome(buffer: String, selection: NSRange) -> TextEditOutcome {
+        rewriteSelectedLines(buffer: buffer, selection: selection) { line in
+            "  " + line
+        }
+    }
+
+    /// Shift-Tab with a selection: strip one indent unit (two spaces, or one
+    /// tab, or a lone space) from every list/task line among the touched lines.
+    public static func outdentOutcome(buffer: String, selection: NSRange) -> TextEditOutcome {
+        rewriteSelectedLines(buffer: buffer, selection: selection) { line in
+            if line.hasPrefix("\t") { return String(line.dropFirst()) }
+            if line.hasPrefix("  ") { return String(line.dropFirst(2)) }
+            if line.hasPrefix(" ") { return String(line.dropFirst()) }
+            return line
+        }
+    }
+
+    private static func rewriteSelectedLines(
+        buffer: String,
+        selection: NSRange,
+        _ transform: (String) -> String
+    ) -> TextEditOutcome {
+        let units = Array(buffer.utf16)
+        guard selection.location >= 0, selection.location + selection.length <= units.count else { return .noOp }
+        let (start, end) = BlockFormat.lineSpan(units: units, selection: selection)
+        let lines = BlockFormat.splitLines(units: units, from: start, to: end)
+            .map { String(decoding: $0, as: UTF16.self) }
+        let rebuilt = lines.map { isListOrTaskLine(line: $0) ? transform($0) : $0 }
+        let replacement = rebuilt.joined(separator: "\n")
+        let original = lines.joined(separator: "\n")
+        guard replacement != original else { return .noOp }
+        return .replace(
+            range: NSRange(location: start, length: end - start),
+            replacement: replacement,
+            selection: NSRange(location: start, length: (replacement as NSString).length)
+        )
+    }
+
     // MARK: - Helpers
 
     /// Returns true if the line is a bullet/ordered list (`ListLineScanner`

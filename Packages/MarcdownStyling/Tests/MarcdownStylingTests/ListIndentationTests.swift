@@ -282,4 +282,32 @@ struct ListIndentationTests {
                 == .noOp
         )
     }
+
+    // MARK: - Selection-based indent / outdent
+
+    @Test func selectionIndentsEveryListLineAndSelectsThem() {
+        #expect(
+            ListIndentation.indentOutcome(buffer: "- a\n- b\nplain", selection: NSRange(location: 0, length: 13))
+                == .replace(
+                    range: NSRange(location: 0, length: 13),
+                    replacement: "  - a\n  - b\nplain",
+                    selection: NSRange(location: 0, length: 17)
+                )
+        )
+    }
+
+    @Test func selectionWithNoListLinesIsNoOp() {
+        #expect(ListIndentation.indentOutcome(buffer: "a\nb", selection: NSRange(location: 0, length: 3)) == .noOp)
+    }
+
+    @Test func selectionOutdentsUpToOneUnitPerLine() {
+        #expect(
+            ListIndentation.outdentOutcome(buffer: "  - a\n\t- b\n- c", selection: NSRange(location: 0, length: 14))
+                == .replace(
+                    range: NSRange(location: 0, length: 14),
+                    replacement: "- a\n- b\n- c",
+                    selection: NSRange(location: 0, length: 11)
+                )
+        )
+    }
 }
