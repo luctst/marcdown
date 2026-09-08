@@ -178,4 +178,17 @@ struct MarkdownStylerTests {
         #expect(storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor == StylingTheme.system.dim)
         #expect(storage.attribute(.marcdownCodeLanguage, at: 0, effectiveRange: nil) == nil)
     }
+
+    @Test func fenceLikeBodyLineInsideLongerFenceKeepsBodyColour() {
+        let styler = MarkdownStyler()
+        let source = "````\n```\n````"
+        let storage = NSTextStorage(string: source)
+        styler.restyle(storage: storage, source: source)
+
+        #expect(storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor == NSColor.clear)
+        #expect(
+            storage.attribute(.foregroundColor, at: 5, effectiveRange: nil) as? NSColor == StylingTheme.system.body)
+        let closing = (source as NSString).length - 1
+        #expect(storage.attribute(.foregroundColor, at: closing, effectiveRange: nil) as? NSColor == NSColor.clear)
+    }
 }

@@ -269,28 +269,44 @@ struct StyleWalker: @preconcurrency MarkupWalker {
     /// advance and the caret can land on them) and the first one carries the
     /// language tag. Focus-line reveal flips them to dim so the user still
     /// sees ```` ``` ```` while editing that line.
+    ///
+    /// Only the first and last lines of the block are candidates: body lines
+    /// may legitimately look like fences (```` ``` ```` inside a four-backtick
+    /// block, `~~~` inside a backtick block) and must stay visible. Each
+    /// candidate still has to pass `isFenceLine`, because an unterminated
+    /// block at EOF ends on a body line.
     private func concealFenceLines(in blockRange: NSRange, language: String?) {
         guard blockRange.length > 0 else { return }
         let storageString = storage.string as NSString
-        let upper = blockRange.location + blockRange.length
-        var lineStart = blockRange.location
-        var isFirstFence = true
-        while lineStart < upper {
-            var lineEnd = lineStart
-            while lineEnd < upper, storageString.character(at: lineEnd) != 0x0A {
-                lineEnd += 1
+        let lower = blockRange.location
+        var upper = lower + blockRange.length
+        // A trailing newline terminates the closing fence line; it is not an
+        // empty last line.
+        if storageString.character(at: upper - 1) == 0x0A {
+            upper -= 1
+        }
+
+        var firstEnd = lower
+        while firstEnd < upper, storageString.character(at: firstEnd) != 0x0A {
+            firstEnd += 1
+        }
+        let firstLine = NSRange(location: lower, length: firstEnd - lower)
+        if isFenceLine(at: firstLine, in: storageString) {
+            storage.removeAttribute(.marcdownConcealed, range: firstLine)
+            storage.addAttribute(.foregroundColor, value: NSColor.clear, range: firstLine)
+            if let language, !language.isEmpty {
+                storage.addAttribute(.marcdownCodeLanguage, value: language, range: firstLine)
             }
-            let lineRange = NSRange(location: lineStart, length: lineEnd - lineStart)
-            if lineRange.length > 0, isFenceLine(at: lineRange, in: storageString) {
-                storage.removeAttribute(.marcdownConcealed, range: lineRange)
-                storage.addAttribute(.foregroundColor, value: NSColor.clear, range: lineRange)
-                if isFirstFence, let language, !language.isEmpty {
-                    storage.addAttribute(.marcdownCodeLanguage, value: language, range: lineRange)
-                }
-                isFirstFence = false
-            }
-            if lineEnd >= upper { break }
-            lineStart = lineEnd + 1
+        }
+
+        var lastStart = upper
+        while lastStart > lower, storageString.character(at: lastStart - 1) != 0x0A {
+            lastStart -= 1
+        }
+        let lastLine = NSRange(location: lastStart, length: upper - lastStart)
+        if lastLine.location > firstLine.location, isFenceLine(at: lastLine, in: storageString) {
+            storage.removeAttribute(.marcdownConcealed, range: lastLine)
+            storage.addAttribute(.foregroundColor, value: NSColor.clear, range: lastLine)
         }
     }
 
