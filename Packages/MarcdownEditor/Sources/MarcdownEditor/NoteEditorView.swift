@@ -145,6 +145,10 @@ public struct NoteEditorView: NSViewRepresentable {
         /// nonisolated `deinit` can read the token to unregister; access from
         /// `init` and the observer block stays on `MainActor`.
         private nonisolated(unsafe) var focusObserver: NSObjectProtocol?
+        /// The line the last restyle revealed. Caret moves inside that line
+        /// don't change what is concealed, so `textViewDidChangeSelection`
+        /// skips the full re-parse for them.
+        private(set) var revealedFocusLine: FocusLine?
 
         init(text: Binding<String>) {
             self.text = text
@@ -183,11 +187,13 @@ public struct NoteEditorView: NSViewRepresentable {
 
         func restyle() {
             guard let storage else { return }
-            styler.restyle(
-                storage: storage,
-                source: storage.string,
-                focusLine: currentFocusLine()
-            )
+            restyle(storage: storage)
+        }
+
+        private func restyle(storage: NSTextStorage) {
+            let focus = currentFocusLine()
+            styler.restyle(storage: storage, source: storage.string, focusLine: focus)
+            revealedFocusLine = focus
         }
 
         public func textDidChange(_ notification: Notification) {
@@ -204,11 +210,7 @@ public struct NoteEditorView: NSViewRepresentable {
             // Restyle first so the attributed buffer is up to date, then
             // propagate the plain string to the binding for the view model's
             // debounced save to pick up.
-            styler.restyle(
-                storage: storage,
-                source: storage.string,
-                focusLine: currentFocusLine()
-            )
+            restyle(storage: storage)
             text.wrappedValue = storage.string
             // Checkbox markers may have been added/removed by this edit;
             // refresh the pointing-hand hover rects so the cursor tracks
@@ -226,11 +228,8 @@ public struct NoteEditorView: NSViewRepresentable {
             if textView.hasMarkedText() { return }
             // Focus-line reveal: restyle so the previously-focused line
             // re-conceals and the newly-focused line reveals.
-            styler.restyle(
-                storage: storage,
-                source: storage.string,
-                focusLine: currentFocusLine()
-            )
+            if currentFocusLine() == revealedFocusLine { return }
+            restyle(storage: storage)
         }
 
         /// Compute a `FocusLine` for the current selection in the active
