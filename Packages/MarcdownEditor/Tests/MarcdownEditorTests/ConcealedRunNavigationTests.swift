@@ -109,6 +109,26 @@ struct ConcealedRunNavigationTests {
         #expect(handled == false)
     }
 
+    @Test func shiftRightExtendsOverConcealedClosingLinkSyntax() {
+        let harness = makeHarness(buffer: "[a](b) x")
+        harness.textView.setSelectedRange(NSRange(location: 1, length: 1))
+
+        let handled = harness.send(#selector(NSResponder.moveRightAndModifySelection(_:)))
+
+        #expect(handled == true)
+        #expect(harness.textView.selectedRange() == NSRange(location: 1, length: 5))
+    }
+
+    @Test func shiftLeftExtendsOverConcealedOpeningDelimiter() {
+        let harness = makeHarness(buffer: "**foo**")
+        harness.textView.setSelectedRange(NSRange(location: 2, length: 3))
+
+        let handled = harness.send(#selector(NSResponder.moveLeftAndModifySelection(_:)))
+
+        #expect(handled == true)
+        #expect(harness.textView.selectedRange() == NSRange(location: 0, length: 5))
+    }
+
     // MARK: - Harness
 
     private func makeHarness(buffer: String) -> Harness {

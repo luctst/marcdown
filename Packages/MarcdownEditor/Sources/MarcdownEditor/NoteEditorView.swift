@@ -327,6 +327,12 @@ public struct NoteEditorView: NSViewRepresentable {
             if selector == #selector(NSResponder.moveRight(_:)) {
                 return handleArrow(in: textView, direction: .right)
             }
+            if selector == #selector(NSResponder.moveLeftAndModifySelection(_:)) {
+                return handleArrow(in: textView, direction: .left, extend: true)
+            }
+            if selector == #selector(NSResponder.moveRightAndModifySelection(_:)) {
+                return handleArrow(in: textView, direction: .right, extend: true)
+            }
             return false
         }
 
@@ -414,13 +420,20 @@ public struct NoteEditorView: NSViewRepresentable {
         /// If the character immediately adjacent (in the motion direction)
         /// carries `.marcdownConcealed`, jump the entire concealed run in
         /// one motion. Otherwise return `false` so AppKit's default single-
-        /// character motion runs (Thomas §1c).
-        private func handleArrow(in textView: NSTextView, direction: ArrowDirection) -> Bool {
+        /// character motion runs (Thomas §1c). With `extend`, the selection's
+        /// active end (the caret) jumps the run instead, growing the
+        /// selection in one step.
+        private func handleArrow(
+            in textView: NSTextView,
+            direction: ArrowDirection,
+            extend: Bool = false
+        ) -> Bool {
             guard let storage = textView.textStorage else { return false }
             if textView.hasMarkedText() { return false }
             let selection = textView.selectedRange()
-            if selection.length > 0 { return false }
-            let cursor = selection.location
+            if selection.length > 0, !extend { return false }
+            // The caret end is the active end for shift-extended moves.
+            let cursor = direction == .right ? selection.location + selection.length : selection.location
             let length = storage.length
 
             // Use the logical-concealment attribute (mirrored by the styler)
@@ -441,7 +454,13 @@ public struct NoteEditorView: NSViewRepresentable {
                     in: NSRange(location: 0, length: length)
                 )
                 let target = effective.location + effective.length
-                textView.setSelectedRange(NSRange(location: target, length: 0))
+                if extend {
+                    textView.setSelectedRange(
+                        NSRange(location: selection.location, length: target - selection.location)
+                    )
+                } else {
+                    textView.setSelectedRange(NSRange(location: target, length: 0))
+                }
                 return true
             case .left:
                 guard cursor > 0 else { return false }
@@ -458,7 +477,13 @@ public struct NoteEditorView: NSViewRepresentable {
                     in: NSRange(location: 0, length: length)
                 )
                 let target = effective.location
-                textView.setSelectedRange(NSRange(location: target, length: 0))
+                if extend {
+                    textView.setSelectedRange(
+                        NSRange(location: target, length: selection.location + selection.length - target)
+                    )
+                } else {
+                    textView.setSelectedRange(NSRange(location: target, length: 0))
+                }
                 return true
             }
         }
