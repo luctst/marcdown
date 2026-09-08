@@ -153,6 +153,13 @@ public struct NoteEditorView: NSViewRepresentable {
         /// don't change what is concealed, so `textViewDidChangeSelection`
         /// skips the full re-parse for them.
         private(set) var revealedFocusLine: FocusLine?
+        /// True while `apply(_:undoName:in:)` is inside
+        /// `NSTextView.shouldChangeText(in:replacementString:)`, which
+        /// re-enters `textView(_:shouldChangeTextIn:replacementString:)`.
+        /// Coordinator-driven edits must pass straight through there:
+        /// otherwise unwrapping `**https://x.y/**` hands the delegate a bare
+        /// URL over a range and the paste-link branch hijacks it.
+        private var isApplyingOutcome = false
 
         init(text: Binding<String>) {
             self.text = text
@@ -774,7 +781,8 @@ public struct NoteEditorView: NSViewRepresentable {
             shouldChangeTextIn affectedCharRange: NSRange,
             replacementString: String?
         ) -> Bool {
-            guard let storage = textView.textStorage, let replacement = replacementString, !textView.hasMarkedText()
+            guard let storage = textView.textStorage, let replacement = replacementString, !textView.hasMarkedText(),
+                !isApplyingOutcome
             else { return true }
             let buffer = storage.string
 
@@ -980,6 +988,8 @@ public struct NoteEditorView: NSViewRepresentable {
             case .noOp:
                 return false
             case .replace(let range, let replacement, let selection):
+                isApplyingOutcome = true
+                defer { isApplyingOutcome = false }
                 guard textView.shouldChangeText(in: range, replacementString: replacement) else { return false }
                 textView.undoManager?.setActionName(undoName)
                 storage.replaceCharacters(in: range, with: replacement)

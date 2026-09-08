@@ -42,4 +42,19 @@ struct ShouldChangeTextTests {
         #expect(allow == false)
         #expect(harness.storage.string == "- [ ] ")
     }
+
+    @Test func boldUnwrapToBareURLIsNotHijackedByPasteLink() {
+        let harness = EditorHarness.make(buffer: "**https://x.y/**")
+        harness.select(0, 16)
+        #expect(harness.coordinator.perform(.bold) == true)
+        #expect(harness.storage.string == "https://x.y/")
+        #expect(harness.textView.selectedRange() == NSRange(location: 0, length: 12))
+    }
+
+    @Test func removingBulletFromBareURLIsNotHijackedByPasteLink() {
+        let harness = EditorHarness.make(buffer: "- https://x.y/")
+        harness.setCaret(14)
+        #expect(harness.coordinator.perform(.bulletList) == true)
+        #expect(harness.storage.string == "https://x.y/")
+    }
 }
