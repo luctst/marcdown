@@ -54,7 +54,8 @@ jobs:
             Packages/MarcdownCore/Tests \
             Packages/MarcdownStyling/Sources \
             Packages/MarcdownStyling/Tests \
-            Packages/MarcdownEditor/Sources
+            Packages/MarcdownEditor/Sources \
+            Packages/MarcdownEditor/Tests
 
       - name: actionlint
         run: |
@@ -102,7 +103,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [MarcdownCore, MarcdownStyling, MarcdownLaunchKit]
+        package: [MarcdownCore, MarcdownStyling, MarcdownEditor, MarcdownLaunchKit]
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

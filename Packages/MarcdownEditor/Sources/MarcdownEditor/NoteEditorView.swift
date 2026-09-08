@@ -20,8 +20,9 @@ extension Notification.Name {
 /// and can be restyled in place on every keystroke without disrupting the
 /// user's cursor or selection.
 ///
-/// There are no formatting hotkeys. The user types raw markdown; the styler
-/// reacts.
+/// Formatting commands (⌘B, ⌘I, …) are caught in `FocusOnAttachTextView.
+/// performKeyEquivalent` and routed to `Coordinator.perform`, which is also
+/// the entry point for the command palette and the `/` menu.
 public struct NoteEditorView: NSViewRepresentable {
     @Binding private var text: String
 
@@ -59,6 +60,9 @@ public struct NoteEditorView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.checkboxClickHandler = { [weak coordinator = context.coordinator] charIndex in
             coordinator?.toggleCheckbox(at: charIndex)
+        }
+        textView.commandHandler = { [weak coordinator = context.coordinator] command in
+            coordinator?.perform(command) ?? false
         }
         textView.allowsUndo = true
         textView.isRichText = false
@@ -835,6 +839,68 @@ public struct NoteEditorView: NSViewRepresentable {
             storage.replaceCharacters(in: middleRange, with: newChar)
             textView.didChangeText()
         }
+
+        // MARK: - Formatting commands
+
+        /// Single entry point for every formatting command. Returns `false`
+        /// when nothing changed so a ⌘-chord can fall through to AppKit.
+        @discardableResult
+        func perform(_ command: EditorCommand) -> Bool {
+            guard let textView, let storage else { return false }
+            if textView.hasMarkedText() { return false }
+            let buffer = storage.string
+            let selection = textView.selectedRange()
+            switch command {
+            case .bold:
+                return apply(
+                    InlineFormat.toggleOutcome(buffer: buffer, selection: selection, delimiter: "**"),
+                    undoName: "Bold", in: textView)
+            case .italic:
+                return apply(
+                    InlineFormat.toggleOutcome(buffer: buffer, selection: selection, delimiter: "*"),
+                    undoName: "Italic", in: textView)
+            case .inlineCode:
+                return apply(
+                    InlineFormat.toggleOutcome(buffer: buffer, selection: selection, delimiter: "`"),
+                    undoName: "Inline Code", in: textView)
+            case .strikethrough:
+                return apply(
+                    InlineFormat.toggleOutcome(buffer: buffer, selection: selection, delimiter: "~~"),
+                    undoName: "Strikethrough", in: textView)
+            case .highlight:
+                return apply(
+                    InlineFormat.toggleOutcome(buffer: buffer, selection: selection, delimiter: "=="),
+                    undoName: "Highlight", in: textView)
+            case .link:
+                let clipboard = NSPasteboard.general.string(forType: .string) ?? ""
+                let url =
+                    InlineFormat.isHTTPURL(clipboard) ? clipboard.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+                return apply(
+                    InlineFormat.linkOutcome(buffer: buffer, selection: selection, url: url),
+                    undoName: "Link", in: textView)
+            case .heading, .bulletList, .orderedList, .taskList, .quote, .codeBlock, .divider:
+                return false  // Task 9
+            }
+        }
+
+        /// The one place edits from pure helpers touch the storage: the
+        /// same shouldChange → replace → didChange → select dance every
+        /// keystroke handler already does, with a named undo group.
+        @discardableResult
+        func apply(_ outcome: TextEditOutcome, undoName: String, in textView: NSTextView) -> Bool {
+            guard let storage = textView.textStorage else { return false }
+            switch outcome {
+            case .noOp:
+                return false
+            case .replace(let range, let replacement, let selection):
+                guard textView.shouldChangeText(in: range, replacementString: replacement) else { return false }
+                textView.undoManager?.setActionName(undoName)
+                storage.replaceCharacters(in: range, with: replacement)
+                textView.didChangeText()
+                textView.setSelectedRange(selection)
+                return true
+            }
+        }
     }
 }
 
@@ -848,10 +914,28 @@ private final class FocusOnAttachTextView: NSTextView {
     /// Called when the user clicks anywhere inside a `[X]` marker. Argument
     /// is the character index of the click.
     var checkboxClickHandler: ((Int) -> Void)?
+    /// Receives ⌘-chords the chord table recognises. Returns whether the
+    /// command changed anything; `false` lets AppKit's default run.
+    var commandHandler: ((EditorCommand) -> Bool)?
     /// Local monitor that re-invalidates cursor rects whenever modifier flags
     /// change, so the `.pointingHand` cursor appears/disappears over link
     /// labels as the user presses or releases the Command key.
     private var flagsMonitor: Any?
+
+    /// ⌘-keyDowns walk the view tree here before reaching `keyDown`. The
+    /// first-responder guard keeps chords from firing while a palette text
+    /// field owns the keyboard (DESIGN.md: chrome shortcuts are disabled
+    /// while an overlay is open). Chord sets are disjoint from the App's
+    /// SwiftUI `.keyboardShortcut` layer, so order between the two never
+    /// matters.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard window?.firstResponder === self,
+            let key = event.charactersIgnoringModifiers,
+            let command = EditorCommand.command(forKey: key, keyCode: event.keyCode, modifiers: event.modifierFlags),
+            commandHandler?(command) == true
+        else { return super.performKeyEquivalent(with: event) }
+        return true
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

@@ -24,7 +24,7 @@ let package = Package(
         ),
         .testTarget(
             name: "MarcdownEditorTests",
-            dependencies: ["MarcdownEditor"],
+            dependencies: ["MarcdownEditor", "MarcdownStyling"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
