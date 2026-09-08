@@ -774,48 +774,68 @@ public struct NoteEditorView: NSViewRepresentable {
             shouldChangeTextIn affectedCharRange: NSRange,
             replacementString: String?
         ) -> Bool {
-            guard
-                let storage = textView.textStorage,
-                let replacement = replacementString,
-                replacement == " ",
-                affectedCharRange.length == 0,
-                !textView.hasMarkedText()
+            guard let storage = textView.textStorage, let replacement = replacementString, !textView.hasMarkedText()
             else { return true }
-
-            // Compute line content up to (but not including) the cursor.
             let buffer = storage.string
+
+            if affectedCharRange.length > 0 {
+                // Paste or drop of a URL over selected text → markdown link.
+                if InlineFormat.isHTTPURL(replacement) {
+                    let url = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return !apply(
+                        InlineFormat.linkOutcome(buffer: buffer, selection: affectedCharRange, url: url),
+                        undoName: "Paste Link", in: textView)
+                }
+                // A typed delimiter wraps the selection. Dead-key layouts
+                // deliver `` ` `` as a composition whose event characters
+                // differ from the final string — those fall through.
+                if (replacement as NSString).length == 1, isLiveKeystroke(for: replacement) {
+                    return !apply(
+                        SelectionWrap.outcome(buffer: buffer, selection: affectedCharRange, typed: replacement),
+                        undoName: "Wrap Selection", in: textView)
+                }
+                return true
+            }
+
+            if replacement == " " {
+                return allowSpaceOrExpandCheckbox(in: textView, storage: storage, cursor: affectedCharRange.location)
+            }
+            return true
+        }
+
+        /// True unless a keyDown is in flight whose characters differ from
+        /// `replacement` (dead-key composition). No current event (tests,
+        /// programmatic insertion) counts as live.
+        private func isLiveKeystroke(for replacement: String) -> Bool {
+            guard let event = NSApp.currentEvent, event.type == .keyDown else { return true }
+            return event.characters == replacement
+        }
+
+        /// Content of the caret's line from its start up to `cursor`.
+        func linePrefix(before cursor: Int, in buffer: String) -> String {
             let units = Array(buffer.utf16)
-            let cursor = affectedCharRange.location
-            guard cursor >= 0, cursor <= units.count else { return true }
+            guard cursor >= 0, cursor <= units.count else { return "" }
             var lineStart = cursor
             while lineStart > 0, units[lineStart - 1] != 0x0A {
                 lineStart -= 1
             }
-            let prefixSlice = Array(units[lineStart..<cursor])
-            let prefix: String
-            if prefixSlice.isEmpty {
-                prefix = ""
-            } else {
-                prefix = prefixSlice.withUnsafeBufferPointer {
-                    String(utf16CodeUnits: $0.baseAddress!, count: $0.count)
-                }
+            return String(decoding: units[lineStart..<cursor], as: UTF16.self)
+        }
+
+        /// The pre-existing `[]` + space → `- [ ] ` expansion, unchanged in
+        /// behaviour, moved out of the delegate method.
+        private func allowSpaceOrExpandCheckbox(in textView: NSTextView, storage: NSTextStorage, cursor: Int) -> Bool {
+            let prefix = linePrefix(before: cursor, in: storage.string)
+            guard let expansion = CheckboxAutoExpansion.expansionOnTypingSpace(beforeCursorOnLine: prefix) else {
+                return true
             }
-
-            guard
-                let expansion = CheckboxAutoExpansion.expansionOnTypingSpace(
-                    beforeCursorOnLine: prefix
-                )
-            else { return true }
-
+            let lineStart = cursor - (prefix as NSString).length
             let prefixRange = NSRange(location: lineStart, length: cursor - lineStart)
-            guard textView.shouldChangeText(in: prefixRange, replacementString: expansion) else {
-                return false
-            }
+            guard textView.shouldChangeText(in: prefixRange, replacementString: expansion) else { return false }
             textView.undoManager?.setActionName("Insert Checkbox")
             storage.replaceCharacters(in: prefixRange, with: expansion)
             textView.didChangeText()
-            let newCursor = lineStart + (expansion as NSString).length
-            textView.setSelectedRange(NSRange(location: newCursor, length: 0))
+            textView.setSelectedRange(NSRange(location: lineStart + (expansion as NSString).length, length: 0))
             return false
         }
 
