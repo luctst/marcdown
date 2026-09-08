@@ -408,16 +408,24 @@ struct PanelRootView: View {
 
     // MARK: - Overlay state transitions
 
+    // Closing with the same key routes through `dismissActiveOverlay` so the
+    // palette sub-mode resets and the editor regains focus, exactly like ESC.
     private func togglePalette() {
-        withAnimation(.easeOut(duration: 0.15)) {
-            activeOverlay = nextActiveOverlay(from: activeOverlay, toggle: .palette)
+        let next = nextActiveOverlay(from: activeOverlay, toggle: .palette)
+        if next == .none {
+            dismissActiveOverlay()
+            return
         }
+        withAnimation(.easeOut(duration: 0.15)) { activeOverlay = next }
     }
 
     private func toggleSwitcher() {
-        withAnimation(.easeOut(duration: 0.15)) {
-            activeOverlay = nextActiveOverlay(from: activeOverlay, toggle: .switcher)
+        let next = nextActiveOverlay(from: activeOverlay, toggle: .switcher)
+        if next == .none {
+            dismissActiveOverlay()
+            return
         }
+        withAnimation(.easeOut(duration: 0.15)) { activeOverlay = next }
     }
 
     private func dismissActiveOverlay() {
