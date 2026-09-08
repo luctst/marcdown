@@ -920,7 +920,19 @@ public struct NoteEditorView: NSViewRepresentable {
                 BlockFormat.toggleOutcome(buffer: buffer, selection: selection, kind: kind),
                 undoName: undoName, in: textView)
             if handled {
-                runRenumberPass(in: textView, around: textView.selectedRange().location)
+                // The renumber pass collapses the selection to a caret; grow
+                // the original range by whatever the pass added or removed so
+                // a multi-line selection still covers the rewritten lines.
+                // ponytail: assumes width changes land inside the selection;
+                // a neighbour outside it crossing a digit boundary (9→10)
+                // shifts the range by that delta. Map both ends if it bites.
+                let selected = textView.selectedRange()
+                let lengthBefore = storage.length
+                runRenumberPass(in: textView, around: selected.location)
+                if selected.length > 0 {
+                    let length = selected.length + (storage.length - lengthBefore)
+                    textView.setSelectedRange(NSRange(location: selected.location, length: length))
+                }
             }
             return handled
         }

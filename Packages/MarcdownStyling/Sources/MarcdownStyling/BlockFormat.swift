@@ -29,6 +29,14 @@ public enum BlockFormat {
         var number = 1
         var firstNewPrefixLength = 0
         for (line, prefix) in zip(lines, prefixes) {
+            // A line already of the target kind keeps its marker as typed
+            // (`*` bullets, `[x]` tasks); only ordered items are rewritten
+            // so the numbering stays consecutive.
+            if !removing, prefix.kind == kind, kind != .ordered {
+                if rebuilt.isEmpty { firstNewPrefixLength = prefix.prefixLength }
+                rebuilt.append(String(decoding: line, as: UTF16.self))
+                continue
+            }
             let marker: String
             if removing {
                 marker = ""
@@ -95,16 +103,20 @@ public enum BlockFormat {
     }
 
     /// `---` on its own line. After text it is preceded by a blank line so
-    /// CommonMark doesn't read it as a setext heading underline.
+    /// CommonMark doesn't read it as a setext heading underline. A blank
+    /// (empty or whitespace-only) line is replaced in place; if the line
+    /// above it has text, the same blank line is inserted first.
     public static func dividerOutcome(buffer: String, selection: NSRange) -> TextEditOutcome {
         let units = Array(buffer.utf16)
         guard selection.location >= 0, selection.location + selection.length <= units.count else { return .noOp }
         let (blockStart, blockEnd) = lineSpan(units: units, selection: selection)
-        if blockEnd == blockStart {
+        if units[blockStart..<blockEnd].allSatisfy({ $0 == 0x20 || $0 == 0x09 }) {
+            let underText = blockStart >= 2 && units[blockStart - 2] != 0x0A
+            let replacement = underText ? "\n---" : "---"
             return .replace(
-                range: NSRange(location: blockStart, length: 0),
-                replacement: "---",
-                selection: NSRange(location: blockStart + 3, length: 0)
+                range: NSRange(location: blockStart, length: blockEnd - blockStart),
+                replacement: replacement,
+                selection: NSRange(location: blockStart + (replacement as NSString).length, length: 0)
             )
         }
         return .replace(

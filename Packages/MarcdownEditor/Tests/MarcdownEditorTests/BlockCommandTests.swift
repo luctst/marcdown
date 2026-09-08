@@ -26,6 +26,7 @@ struct BlockCommandTests {
         harness.select(5, 3)
         harness.coordinator.perform(.orderedList)
         #expect(harness.storage.string == "1. a\n2. b\n3. c")
+        #expect(harness.textView.selectedRange() == NSRange(location: 5, length: 9))
     }
 
     @Test func taskQuoteAndDivider() {

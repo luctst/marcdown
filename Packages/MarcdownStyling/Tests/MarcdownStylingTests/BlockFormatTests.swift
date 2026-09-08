@@ -69,6 +69,11 @@ struct BlockFormatTests {
         #expect(toggled("- a\n- b", 0, 7, .bullet)?.0 == "a\nb")
     }
 
+    @Test func mixedConversionKeepsLinesAlreadyOfTargetKind() {
+        #expect(toggled("- [x] a\nb", 0, 9, .task)?.0 == "- [x] a\n- [ ] b")
+        #expect(toggled("* a\nb", 0, 5, .bullet)?.0 == "* a\n- b")
+    }
+
     @Test func taskAndQuotePreserveIndent() {
         #expect(toggled("  - a", 5, .task)?.0 == "  - [ ] a")
         #expect(toggled("  x", 3, .quote)?.0 == "  > x")
@@ -114,5 +119,26 @@ struct BlockFormatTests {
                 == .replace(
                     range: NSRange(location: 1, length: 0), replacement: "\n\n---",
                     selection: NSRange(location: 6, length: 0)))
+    }
+
+    @Test func dividerOnEmptyLineUnderTextAddsBlankLine() {
+        #expect(
+            BlockFormat.dividerOutcome(buffer: "a\n", selection: NSRange(location: 2, length: 0))
+                == .replace(
+                    range: NSRange(location: 2, length: 0), replacement: "\n---",
+                    selection: NSRange(location: 6, length: 0)))
+        #expect(
+            BlockFormat.dividerOutcome(buffer: "a\n\n", selection: NSRange(location: 3, length: 0))
+                == .replace(
+                    range: NSRange(location: 3, length: 0), replacement: "---",
+                    selection: NSRange(location: 6, length: 0)))
+    }
+
+    @Test func dividerReplacesWhitespaceOnlyLine() {
+        #expect(
+            BlockFormat.dividerOutcome(buffer: "  ", selection: NSRange(location: 2, length: 0))
+                == .replace(
+                    range: NSRange(location: 0, length: 2), replacement: "---",
+                    selection: NSRange(location: 3, length: 0)))
     }
 }
