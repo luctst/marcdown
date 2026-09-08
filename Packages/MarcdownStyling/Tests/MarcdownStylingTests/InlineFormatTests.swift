@@ -62,6 +62,72 @@ struct InlineFormatTests {
                 == .noOp)
     }
 
+    @Test func singleUnitDelimiterDoesNotUnwrapEvenRun() {
+        #expect(
+            InlineFormat.toggleOutcome(buffer: "**foo**", selection: NSRange(location: 2, length: 3), delimiter: "*")
+                == .replace(
+                    range: NSRange(location: 2, length: 3), replacement: "*foo*",
+                    selection: NSRange(location: 3, length: 3)))
+    }
+
+    @Test func singleUnitDelimiterUnwrapsOddRun() {
+        #expect(
+            InlineFormat.toggleOutcome(buffer: "***foo***", selection: NSRange(location: 3, length: 3), delimiter: "*")
+                == .replace(
+                    range: NSRange(location: 2, length: 5), replacement: "foo",
+                    selection: NSRange(location: 2, length: 3)))
+    }
+
+    @Test func doubleUnitDelimiterUnwrapsTripleRun() {
+        #expect(
+            InlineFormat.toggleOutcome(buffer: "***foo***", selection: NSRange(location: 3, length: 3), delimiter: "**")
+                == .replace(
+                    range: NSRange(location: 1, length: 7), replacement: "foo",
+                    selection: NSRange(location: 1, length: 3)))
+    }
+
+    @Test func singleUnitDelimiterWrapsWholeStrongSpan() {
+        #expect(
+            InlineFormat.toggleOutcome(buffer: "**foo**", selection: NSRange(location: 0, length: 7), delimiter: "*")
+                == .replace(
+                    range: NSRange(location: 0, length: 7), replacement: "***foo***",
+                    selection: NSRange(location: 1, length: 7)))
+    }
+
+    @Test func doubleUnitDelimiterUnwrapsWholeStrongSpan() {
+        #expect(
+            InlineFormat.toggleOutcome(buffer: "**foo**", selection: NSRange(location: 0, length: 7), delimiter: "**")
+                == .replace(
+                    range: NSRange(location: 0, length: 7), replacement: "foo",
+                    selection: NSRange(location: 0, length: 3)))
+    }
+
+    @Test func caretInsideEvenRunInsertsSingleUnitPair() {
+        #expect(
+            InlineFormat.toggleOutcome(buffer: "a****b", selection: NSRange(location: 3, length: 0), delimiter: "*")
+                == .replace(
+                    range: NSRange(location: 3, length: 0), replacement: "**",
+                    selection: NSRange(location: 4, length: 0)))
+    }
+
+    @Test func selectionStraddlingDelimitersIsNoOp() {
+        #expect(
+            InlineFormat.toggleOutcome(buffer: "**a** ", selection: NSRange(location: 2, length: 4), delimiter: "**")
+                == .noOp)
+        #expect(
+            InlineFormat.toggleOutcome(buffer: "**foo**", selection: NSRange(location: 1, length: 5), delimiter: "**")
+                == .noOp)
+    }
+
+    @Test func delimiterOnlySelectionIsNoOp() {
+        #expect(
+            InlineFormat.toggleOutcome(buffer: "**", selection: NSRange(location: 0, length: 2), delimiter: "**")
+                == .noOp)
+        #expect(
+            InlineFormat.toggleOutcome(buffer: "**foo**", selection: NSRange(location: 0, length: 2), delimiter: "**")
+                == .noOp)
+    }
+
     @Test func linkWithSelectionAndURLPutsCaretAfter() {
         #expect(
             InlineFormat.linkOutcome(buffer: "see docs", selection: NSRange(location: 4, length: 4), url: "https://x.y")
