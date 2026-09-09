@@ -48,6 +48,22 @@ extension NSAttributedString.Key {
     /// exclusively by `StyleWalker.visitLink`; read by the editor's click
     /// handler in `mouseDown` to open the URL on Cmd+click.
     public static let marcdownLink = NSAttributedString.Key("marcdownLink")
+
+    /// Tags every character of a blockquote (nested quotes share the run).
+    /// Value is a `Bool`. Written by `StyleWalker.visitBlockQuote`; read by
+    /// the editor's layout manager to draw one vertical bar beside the run.
+    public static let marcdownBlockquote = NSAttributedString.Key("marcdownBlockquote")
+
+    /// Tags the characters of a thematic break (`---`, `***`, `___`, spaced
+    /// variants). Value is a `Bool`. Written by `StyleWalker.visitThematicBreak`;
+    /// read by the layout manager to draw a rule; stripped on the focus line.
+    public static let marcdownThematicBreak = NSAttributedString.Key("marcdownThematicBreak")
+
+    /// Tags the opening fence line of a fenced code block with its info
+    /// string (`swift` in ```` ```swift ````). Value is a `String`. Written by
+    /// `StyleWalker.visitCodeBlock`; read by the layout manager to draw a
+    /// language badge; stripped on the focus line.
+    public static let marcdownCodeLanguage = NSAttributedString.Key("marcdownCodeLanguage")
 }
 
 /// Kind of plain list marker tagged by the list-scanner pass.

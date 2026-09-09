@@ -15,6 +15,15 @@ public final class MarkdownStyler {
     public let theme: StylingTheme
     private let baseFont: NSFont
 
+    /// Advance of one clear-painted marker cell (markers are forced
+    /// monospaced) and of one base-font space — the two units a list prefix
+    /// is made of. Computed once; fonts don't change during a styler's life.
+    private lazy var monoCellWidth: CGFloat = {
+        let mono = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
+        return ("0" as NSString).size(withAttributes: [.font: mono]).width
+    }()
+    private lazy var spaceWidth: CGFloat = (" " as NSString).size(withAttributes: [.font: baseFont]).width
+
     public init(
         theme: StylingTheme = .system,
         baseFont: NSFont = NSFont(name: "AvenirNext-Regular", size: 15) ?? NSFont.systemFont(ofSize: 15)
@@ -64,6 +73,9 @@ public final class MarkdownStyler {
             storage.removeAttribute(.marcdownCheckbox, range: fullRange)
             storage.removeAttribute(.marcdownListMarker, range: fullRange)
             storage.removeAttribute(.marcdownCodeBlock, range: fullRange)
+            storage.removeAttribute(.marcdownBlockquote, range: fullRange)
+            storage.removeAttribute(.marcdownThematicBreak, range: fullRange)
+            storage.removeAttribute(.marcdownCodeLanguage, range: fullRange)
         }
 
         var walker = StyleWalker(
@@ -84,6 +96,10 @@ public final class MarkdownStyler {
         // lines are already owned and we skip them here. Also runs after
         // the AST walk so any AST-applied attributes get overwritten.
         applyListScannerPass(storage: storage, source: source)
+
+        // `==text==` is not CommonMark; a line scanner owns it. Runs after the
+        // walker so inline-code fonts and code-block tags are already in place.
+        applyHighlightPass(storage: storage, source: source)
 
         // Focus-line reveal: last pass so it can override conceal/clear-paint
         // attributes set by the walker and the scanner passes.
@@ -113,6 +129,8 @@ public final class MarkdownStyler {
         // a bullet circle / number / checkbox icon on this line.
         storage.removeAttribute(.marcdownListMarker, range: range)
         storage.removeAttribute(.marcdownCheckbox, range: range)
+        storage.removeAttribute(.marcdownThematicBreak, range: range)
+        storage.removeAttribute(.marcdownCodeLanguage, range: range)
 
         // Strip concealment and repaint any previously concealed OR
         // clear-painted run in the dim theme color so the raw syntax becomes
@@ -139,37 +157,36 @@ public final class MarkdownStyler {
         }
     }
 
-    /// Walks `source` line-by-line, classifying each via `CheckboxLineScanner`,
-    /// and tags `.marcdownConcealed` / `.marcdownCheckbox` accordingly. This
-    /// is the only writer of `.marcdownCheckbox` in the entire pipeline.
-    private func applyCheckboxScannerPass(storage: NSTextStorage, source: String) {
+    /// Calls `body` once per line of `source` with the line's UTF-16 start
+    /// offset and its content (no trailing `\n`). Empty lines are skipped.
+    private func forEachLine(in source: String, _ body: (_ lineStart: Int, _ line: String) -> Void) {
         let units = Array(source.utf16)
         let length = units.count
         var lineStart = 0
         while lineStart <= length {
-            // Find lineEnd (the next `\n` or end of buffer).
             var lineEnd = lineStart
             while lineEnd < length, units[lineEnd] != 0x0A {
                 lineEnd += 1
             }
-
-            let lineLength = lineEnd - lineStart
-            if lineLength > 0 {
-                let lineSlice = Array(units[lineStart..<lineEnd])
-                let line = lineSlice.withUnsafeBufferPointer {
-                    String(utf16CodeUnits: $0.baseAddress!, count: $0.count)
-                }
-                applyCheckboxAttributes(
-                    for: CheckboxLineScanner.scan(line: line),
-                    storage: storage,
-                    lineStart: lineStart,
-                    lineLength: lineLength
-                )
+            if lineEnd > lineStart {
+                body(lineStart, String(decoding: units[lineStart..<lineEnd], as: UTF16.self))
             }
-
-            // Advance past the `\n` (or stop if past end).
             if lineEnd >= length { break }
             lineStart = lineEnd + 1
+        }
+    }
+
+    /// Walks `source` line-by-line, classifying each via `CheckboxLineScanner`,
+    /// and tags `.marcdownConcealed` / `.marcdownCheckbox` accordingly. This
+    /// is the only writer of `.marcdownCheckbox` in the entire pipeline.
+    private func applyCheckboxScannerPass(storage: NSTextStorage, source: String) {
+        forEachLine(in: source) { lineStart, line in
+            applyCheckboxAttributes(
+                for: CheckboxLineScanner.scan(line: line),
+                storage: storage,
+                lineStart: lineStart,
+                lineLength: (line as NSString).length
+            )
         }
     }
 
@@ -187,7 +204,12 @@ public final class MarkdownStyler {
             let location = lineStart + indentLength
             let range = NSRange(location: location, length: concealLength)
             applyConceal(storage: storage, range: range)
-            applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+            applyListParagraphStyle(
+                storage: storage,
+                lineStart: lineStart,
+                lineLength: lineLength,
+                hangingIndent: 0
+            )
         case .complete(let indentLength, let bracketLocation, let state):
             // Conceal "- " (bullet + space) at start.
             applyConceal(
@@ -229,7 +251,12 @@ public final class MarkdownStyler {
             )
             storage.addAttribute(.font, value: markerFont, range: markerRange)
 
-            applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+            applyListParagraphStyle(
+                storage: storage,
+                lineStart: lineStart,
+                lineLength: lineLength,
+                hangingIndent: CGFloat(indentLength) * spaceWidth + 2 * monoCellWidth + spaceWidth
+            )
         }
     }
 
@@ -241,54 +268,69 @@ public final class MarkdownStyler {
     /// bullet / ordered markers. This is the only writer of
     /// `.marcdownListMarker` in the entire pipeline.
     private func applyListScannerPass(storage: NSTextStorage, source: String) {
-        let units = Array(source.utf16)
-        let length = units.count
-        var lineStart = 0
-        while lineStart <= length {
-            // Find lineEnd (the next `\n` or end of buffer).
-            var lineEnd = lineStart
-            while lineEnd < length, units[lineEnd] != 0x0A {
-                lineEnd += 1
+        forEachLine(in: source) { lineStart, line in
+            // `* * *` and `- - -` scan as bullets; the walker already
+            // tagged the line as a thematic break, so leave it alone.
+            // cmark anchors the node at the first non-blank character,
+            // so probe past any leading indentation.
+            let units = Array(line.utf16)
+            let firstNonBlank = units.firstIndex { $0 != 0x20 && $0 != 0x09 } ?? units.count
+            let isThematicBreak =
+                firstNonBlank < units.count
+                && storage.attribute(.marcdownThematicBreak, at: lineStart + firstNonBlank, effectiveRange: nil) != nil
+            guard !isThematicBreak else { return }
+            // Checkbox precedence with one exception: a `.complete`
+            // list shape (the user has a real `- ` / `1. ` marker)
+            // wins over a checkbox `.partial` — without this carve-out
+            // the line `- ` (typed but no `[` yet) would stay dimly
+            // concealed by the checkbox partial branch and never get
+            // its bullet anchor / marker tag. A `.complete` checkbox
+            // (`- [ ]` / `- [x]`) is owned by the checkbox pass
+            // exclusively.
+            let checkboxShape = CheckboxLineScanner.scan(line: line)
+            let listShape = ListLineScanner.scan(line: line)
+            let listOverrides: Bool
+            switch (checkboxShape, listShape) {
+            case (.none, _):
+                listOverrides = true
+            case (.partial, .complete):
+                listOverrides = true
+            default:
+                listOverrides = false
             }
-
-            let lineLength = lineEnd - lineStart
-            if lineLength > 0 {
-                let lineSlice = Array(units[lineStart..<lineEnd])
-                let line = lineSlice.withUnsafeBufferPointer {
-                    String(utf16CodeUnits: $0.baseAddress!, count: $0.count)
-                }
-                // Checkbox precedence with one exception: a `.complete`
-                // list shape (the user has a real `- ` / `1. ` marker)
-                // wins over a checkbox `.partial` — without this carve-out
-                // the line `- ` (typed but no `[` yet) would stay dimly
-                // concealed by the checkbox partial branch and never get
-                // its bullet anchor / marker tag. A `.complete` checkbox
-                // (`- [ ]` / `- [x]`) is owned by the checkbox pass
-                // exclusively.
-                let checkboxShape = CheckboxLineScanner.scan(line: line)
-                let listShape = ListLineScanner.scan(line: line)
-                let listOverrides: Bool
-                switch (checkboxShape, listShape) {
-                case (.none, _):
-                    listOverrides = true
-                case (.partial, .complete):
-                    listOverrides = true
-                default:
-                    listOverrides = false
-                }
-                if listOverrides {
-                    applyListAttributes(
-                        for: listShape,
-                        storage: storage,
-                        lineStart: lineStart,
-                        lineLength: lineLength
-                    )
-                }
+            if listOverrides {
+                applyListAttributes(
+                    for: listShape,
+                    storage: storage,
+                    lineStart: lineStart,
+                    lineLength: units.count
+                )
             }
+        }
+    }
 
-            // Advance past the `\n` (or stop if past end).
-            if lineEnd >= length { break }
-            lineStart = lineEnd + 1
+    /// `==text==` → highlight background on the content, delimiters concealed.
+    /// Skips code (fenced blocks via the tag, inline code via the monospaced
+    /// font already applied by the walker).
+    private func applyHighlightPass(storage: NSTextStorage, source: String) {
+        forEachLine(in: source) { lineStart, line in
+            guard storage.attribute(.marcdownCodeBlock, at: lineStart, effectiveRange: nil) == nil else { return }
+            for span in HighlightScanner.scan(line: line) {
+                let location = lineStart + span.location
+                guard span.length > 4, location + span.length <= storage.length else { continue }
+                if let font = storage.attribute(.font, at: location, effectiveRange: nil) as? NSFont,
+                    font.fontDescriptor.symbolicTraits.contains(.monoSpace)
+                {
+                    continue  // ponytail: also skips highlights inside tables; revisit if it bites
+                }
+                storage.addAttribute(
+                    .backgroundColor,
+                    value: theme.highlight,
+                    range: NSRange(location: location + 2, length: span.length - 4)
+                )
+                applyConceal(storage: storage, range: NSRange(location: location, length: 2))
+                applyConceal(storage: storage, range: NSRange(location: location + span.length - 2, length: 2))
+            }
         }
     }
 
@@ -308,7 +350,12 @@ public final class MarkdownStyler {
             // the chars and either collapses the line or shows nothing, which makes
             // the cursor appear to misbehave. Once the trailing space lands and the
             // scanner returns `.complete`, the proper marker treatment kicks in.
-            applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+            applyListParagraphStyle(
+                storage: storage,
+                lineStart: lineStart,
+                lineLength: lineLength,
+                hangingIndent: 0
+            )
         case .complete(let indentLength, let markerLength, let kind):
             switch kind {
             case .bullet(let depth):
@@ -342,7 +389,12 @@ public final class MarkdownStyler {
                     range: markerRange
                 )
 
-                applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+                applyListParagraphStyle(
+                    storage: storage,
+                    lineStart: lineStart,
+                    lineLength: lineLength,
+                    hangingIndent: CGFloat(indentLength) * spaceWidth + CGFloat(markerLength) * monoCellWidth
+                )
             case .ordered(let number, let depth):
                 // Marker layout is `<digits>.<space>` — markerLength = digits + 2.
                 let digitCount = markerLength - 2
@@ -376,7 +428,12 @@ public final class MarkdownStyler {
                     range: markerRange
                 )
 
-                applyParagraphSpacing(storage: storage, lineStart: lineStart, lineLength: lineLength)
+                applyListParagraphStyle(
+                    storage: storage,
+                    lineStart: lineStart,
+                    lineLength: lineLength,
+                    hangingIndent: CGFloat(indentLength) * spaceWidth + CGFloat(markerLength) * monoCellWidth
+                )
             }
         }
     }
@@ -391,25 +448,40 @@ public final class MarkdownStyler {
         storage.addAttribute(.marcdownConcealedLogical, value: true, range: clamped)
     }
 
-    private func applyParagraphSpacing(
+    /// List lines get 4pt of air above and hang wrapped text under the first
+    /// body character. `hangingIndent` is 0 for partial markers (nothing to
+    /// hang under yet).
+    private func applyListParagraphStyle(
         storage: NSTextStorage,
         lineStart: Int,
-        lineLength: Int
+        lineLength: Int,
+        hangingIndent: CGFloat
     ) {
         let storageLength = storage.length
         let upper = min(lineStart + lineLength, storageLength)
         let lower = min(lineStart, storageLength)
         guard upper > lower else { return }
-        let range = NSRange(location: lower, length: upper - lower)
+        ParagraphStyling.mutate(in: storage, range: NSRange(location: lower, length: upper - lower)) { style in
+            style.paragraphSpacingBefore = 4
+            style.firstLineHeadIndent = 0
+            style.headIndent = hangingIndent
+        }
+    }
+
+    /// Paragraph style every line starts from. Public so the editor can seed
+    /// `NSTextView.defaultParagraphStyle`/`typingAttributes` and the empty
+    /// document's caret has the same height as typed text.
+    public var baseParagraphStyle: NSParagraphStyle {
         let style = NSMutableParagraphStyle()
-        style.paragraphSpacingBefore = 4
-        storage.addAttribute(.paragraphStyle, value: style, range: range)
+        style.lineHeightMultiple = theme.lineHeightMultiple
+        return style
     }
 
     private var baseAttributes: [NSAttributedString.Key: Any] {
         [
             .font: baseFont,
             .foregroundColor: theme.body,
+            .paragraphStyle: baseParagraphStyle,
         ]
     }
 }

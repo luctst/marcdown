@@ -15,7 +15,7 @@ A background-only macOS markdown editor. Floating panel, global hotkey, plain `.
 Marcdown is built for markdown writers who want a distraction-free, keyboard-driven note editor that respects their data.
 
 - **Plain text, local files** — notes live in `~/marcdown/` under your control; sync via iCloud Drive, Dropbox, Syncthing, or just `git`. No lock-in.
-- **Live markdown rendering** — as you type `# Heading` or `**bold**`, the text renders in place (WYSIWYG-ish; no formatting hotkeys needed).
+- **Live markdown rendering** — as you type `# Heading` or `**bold**`, the text renders in place (WYSIWYG-ish), with formatting chords when you want them.
 - **Native macOS** — Swift 6, AppKit + SwiftUI; no Electron, no browser overhead. Fast, low-footprint.
 - **Keyboard-first UX** — global hotkey, panel overlay, all controls accessible via chords. No mouse required.
 
@@ -23,7 +23,8 @@ Marcdown is built for markdown writers who want a distraction-free, keyboard-dri
 
 **Working today** (released in slices):
 
-- Live markdown styling (headings, bold, italic, code blocks, blockquotes, lists)
+- Live markdown styling (headings, bold, italic, strikethrough, `==highlight==`, code blocks with a language badge, blockquotes with a drawn bar, lists, `---` drawn as a rule)
+- Formatting shortcuts (bold, italic, headings, lists, quote, link) and a `/` block menu at the start of a line
 - Floating panel with global hotkey (Cmd+Shift+Space, customizable)
 - Multi-note management (quick switcher, prev/next, 9-item recent history)
 - H1-driven auto-rename (Untitled N.md becomes "My Note.md" once you type a level-1 heading)
@@ -79,7 +80,7 @@ Marcdown is built as a **macOS 15+ background-only app** in Swift 6 with strict 
 ### Via Xcode
 
 ```bash
-cd /Users/luctst/marcdowndev
+cd /Users/luctst/mardowndev
 xcodegen generate
 open Marcdown.xcodeproj
 ```
@@ -89,7 +90,7 @@ Then press **▶** in Xcode to build and run. The app stays out of the Dock (bac
 ### Command line
 
 ```bash
-cd /Users/luctst/marcdowndev
+cd /Users/luctst/mardowndev
 xcodegen generate
 xcodebuild -scheme Marcdown -configuration Debug build
 xcodebuild -scheme Marcdown -configuration Debug run
@@ -105,6 +106,9 @@ swift test --package-path Packages/MarcdownCore
 
 # MarcdownStyling tests (attribute application, LineOffsetIndex UTF-8↔UTF-16 conversion)
 swift test --package-path Packages/MarcdownStyling
+
+# MarcdownEditor tests (command routing, formatting commands)
+swift test --package-path Packages/MarcdownEditor
 ```
 
 ### Test coverage
@@ -112,6 +116,7 @@ swift test --package-path Packages/MarcdownStyling
 - **NoteTitleTests** — H1 extraction, fallback to filename, trimming, collision detection.
 - **MarkdownStylerTests** — heading/bold/italic/code/blockquote attribute application; idempotent restyle after edit.
 - **LineOffsetIndexTests** — UTF-8 multi-byte column conversion, out-of-bounds clamping, empty source handling.
+- **MarcdownEditor tests** (`EditorCommandTests`, `InlineFormatCommandTests`, `BlockCommandTests`, `ListIndentCommandTests`, `SlashMenuTests`, …) — command routing, inline and block formatting, list indent/outdent, slash menu, wrap-on-type.
 
 ## CI / Release
 
@@ -122,12 +127,12 @@ GitHub Actions runs on every PR and on tag pushes.
 Triggers on PRs into `main` and pushes to `main`. Two jobs run in parallel:
 
 - **`lint`** — hard-fails the PR on any violation. Runs `swift-format lint --strict` against `.swift-format`, `actionlint` on the workflow files, and `commitlint` against the conventional-commit style enforced in `commitlint.config.js`.
-- **`test-packages`** — matrix over `MarcdownCore` and `MarcdownStyling`. Each leg runs `swift test --package-path Packages/<name> --parallel`. `MarcdownEditor` has no test target and is excluded; `App/Tests/PanelControllerTests` requires the full app build and is currently exercised only at release time.
+- **`test-packages`** — matrix over `MarcdownCore`, `MarcdownStyling`, `MarcdownEditor`, and `MarcdownLaunchKit`. Each leg runs `swift test --package-path Packages/<name> --parallel`. `App/Tests/PanelControllerTests` requires the full app build and is currently exercised only at release time.
 
 To check formatting locally before pushing:
 
 ```bash
-xcrun swift-format lint --strict --recursive --configuration .swift-format App/ Packages/MarcdownCore/Sources Packages/MarcdownCore/Tests Packages/MarcdownStyling/Sources Packages/MarcdownStyling/Tests Packages/MarcdownEditor/Sources
+xcrun swift-format lint --strict --recursive --configuration .swift-format App/ Packages/MarcdownCore/Sources Packages/MarcdownCore/Tests Packages/MarcdownStyling/Sources Packages/MarcdownStyling/Tests Packages/MarcdownEditor/Sources Packages/MarcdownEditor/Tests
 
 # Or auto-fix:
 xcrun swift-format format --in-place --recursive --configuration .swift-format App/ Packages/...
@@ -187,6 +192,23 @@ If any CI or release job fails, a summary message is posted to `#marcdown-ci` wi
 | **Cmd+K**              | Command Palette (Export, other actions)      |
 | **Cmd+,**              | Settings (hotkey rebinder)                   |
 | **Esc**                | Hide panel                                   |
+
+### Formatting (when the editor has focus)
+
+| Shortcut                        | Action                                        |
+| ------------------------------- | --------------------------------------------- |
+| **Cmd+B** / **Cmd+I**           | Bold / italic (toggle around selection)       |
+| **Cmd+E**                       | Inline code                                   |
+| **Cmd+Shift+X**                 | Strikethrough                                 |
+| **Cmd+Shift+H**                 | Highlight (`==text==`)                        |
+| **Cmd+Shift+K**                 | Link (uses a URL on the clipboard)            |
+| **Cmd+Opt+1** … **Cmd+Opt+6**   | Heading 1–6; **Cmd+Opt+0** paragraph          |
+| **Cmd+Shift+L** / **N** / **T** | Bullet / numbered / task list                 |
+| **Cmd+Shift+B**                 | Quote                                         |
+| **Tab** / **Shift+Tab**         | Indent / outdent list lines (selection aware) |
+| **/** at line start             | Block menu (same rows as **Cmd+K** → Markdown) |
+
+Typing `*`, `_`, `` ` ``, `~`, `=`, `"`, `[` or `(` with text selected wraps it; pasting a URL over selected text makes a link.
 
 ## Notes folder
 

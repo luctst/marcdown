@@ -44,6 +44,22 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
     /// when unset (preserves usability for tests / previews).
     nonisolated(unsafe) var codeBlockFillColor: NSColor?
 
+    /// Per-draw deduplication for language badges, same rationale as
+    /// `drawnCodeBlockRanges`.
+    private nonisolated(unsafe) var drawnBadgeRanges: Set<NSRange> = []
+
+    /// Per-draw deduplication for blockquote bars, same rationale as
+    /// `drawnCodeBlockRanges`.
+    private nonisolated(unsafe) var drawnQuoteRanges: Set<NSRange> = []
+    /// Bar colour for `.marcdownBlockquote` runs; set from `StylingTheme.quoteBar`.
+    nonisolated(unsafe) var quoteBarColor: NSColor?
+
+    /// Per-draw deduplication for horizontal rules, same rationale as
+    /// `drawnCodeBlockRanges`.
+    private nonisolated(unsafe) var drawnRuleRanges: Set<NSRange> = []
+    /// Colour of the drawn horizontal rule; set from `StylingTheme.rule`.
+    nonisolated(unsafe) var ruleColor: NSColor?
+
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
         // Code-block container is drawn first so checkbox + list-marker
@@ -51,8 +67,46 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
         // shouldn't overlap in practice, but the icons are interactive UI
         // and must never be visually clipped by a background fill).
         drawCodeBlockBackgrounds(forGlyphRange: glyphsToShow, at: origin)
+        drawCodeLanguageBadges(forGlyphRange: glyphsToShow, at: origin)
+        drawBlockquoteBars(forGlyphRange: glyphsToShow, at: origin)
+        drawThematicBreaks(forGlyphRange: glyphsToShow, at: origin)
         drawCheckboxIcons(forGlyphRange: glyphsToShow, at: origin)
         drawListMarkers(forGlyphRange: glyphsToShow, at: origin)
+    }
+
+    /// Walks the `key` attribute runs intersecting `glyphsToShow` once per draw
+    /// call and hands each run's value + character range to `body`. `drawn`
+    /// is the caller's per-pass dedup set; it is reset here so each
+    /// `drawBackground` call starts clean, then filled as runs are visited.
+    private nonisolated func forEachTaggedRun(
+        _ key: NSAttributedString.Key,
+        in glyphsToShow: NSRange,
+        drawn: inout Set<NSRange>,
+        _ body: (Any, NSRange) -> Void
+    ) {
+        drawn.removeAll(keepingCapacity: true)
+        guard let storage = textStorage else { return }
+        guard glyphsToShow.length > 0 else { return }
+        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        guard charRange.length > 0 else { return }
+
+        let storageLength = storage.length
+        let upper = min(charRange.location + charRange.length, storageLength)
+        var probe = charRange.location
+        while probe < upper {
+            var effective = NSRange(location: 0, length: 0)
+            let value = storage.attribute(
+                key,
+                at: probe,
+                longestEffectiveRange: &effective,
+                in: NSRange(location: 0, length: storageLength)
+            )
+            if let value, effective.length > 0, !drawn.contains(effective) {
+                drawn.insert(effective)
+                body(value, effective)
+            }
+            probe = max(probe + 1, effective.location + effective.length)
+        }
     }
 
     private nonisolated func drawCheckboxIcons(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
@@ -115,10 +169,13 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
         // adding the textContainerOrigin (`origin` passed in already accounts
         // for that — it is the container origin in the view).
         let glyphX = origin.x + lineFragRect.origin.x + middleLocation.x
-        let lineY = origin.y + lineFragRect.origin.y
+        // TextKit 1 adds the extra `lineHeightMultiple` space above the
+        // glyphs, so centring on the fragment height drifts high. Anchor on
+        // the baseline and centre on the x-height instead.
+        let baselineY = origin.y + lineFragRect.origin.y + middleLocation.y
 
         let iconX = glyphX + (advanceBoxWidth - side) / 2
-        let iconY = lineY + (lineFragRect.height - side) / 2
+        let iconY = baselineY - xHeight(forGlyphAt: middleGlyph) / 2 - side / 2
         let rect = NSRect(x: iconX, y: iconY, width: side, height: side)
 
         let path = NSBezierPath(roundedRect: rect, xRadius: side * 0.25, yRadius: side * 0.25)
@@ -209,12 +266,12 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
         let advanceBoxWidth = advance > 0 ? advance : side
 
         let glyphX = origin.x + lineFragRect.origin.x + firstLocation.x
-        let lineY = origin.y + lineFragRect.origin.y
+        let baselineY = origin.y + lineFragRect.origin.y + firstLocation.y
 
         let iconX = glyphX + (advanceBoxWidth - side) / 2
-        // Centre on x-height (~0.5 line height) rather than baseline for a
-        // better optical alignment with body text.
-        let iconY = lineY + lineFragRect.height * 0.5 - side * 0.5
+        // Centre on the x-height above the baseline for optical alignment
+        // with lowercase body text, independent of the line-height multiple.
+        let iconY = baselineY - xHeight(forGlyphAt: firstGlyph) / 2 - side / 2
         let rect = NSRect(x: iconX, y: iconY, width: side, height: side)
 
         let path: NSBezierPath
@@ -318,6 +375,54 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
         return NSFont.systemFontSize
     }
 
+    /// x-height of the font the styler wrote at `glyphIndex`, so overlay
+    /// icons centre on lowercase text regardless of the line-height multiple.
+    private nonisolated func xHeight(forGlyphAt glyphIndex: Int) -> CGFloat {
+        let charIndex = characterIndexForGlyph(at: glyphIndex)
+        guard let storage = textStorage, charIndex < storage.length,
+            let font = storage.attribute(.font, at: charIndex, effectiveRange: nil) as? NSFont
+        else { return NSFont.systemFont(ofSize: NSFont.systemFontSize).xHeight }
+        return font.xHeight
+    }
+
+    // MARK: - Blockquote bar
+
+    /// One 3pt rounded bar per `.marcdownBlockquote` run, hugging the left
+    /// edge of the text container. The clear-painted `> ` cells provide the
+    /// gap between bar and text, so no extra indent is needed here.
+    private nonisolated func drawBlockquoteBars(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let container = textContainers.first else { return }
+        let color = quoteBarColor ?? NSColor.tertiaryLabelColor
+        forEachTaggedRun(.marcdownBlockquote, in: glyphsToShow, drawn: &drawnQuoteRanges) { value, effective in
+            guard let flag = value as? Bool, flag else { return }
+            let glyphs = glyphRange(forCharacterRange: effective, actualCharacterRange: nil)
+            guard glyphs.length > 0 else { return }
+            let bounding = boundingRect(forGlyphRange: glyphs, in: container)
+            let rect = NSRect(x: origin.x + 4, y: origin.y + bounding.origin.y, width: 3, height: bounding.height)
+            color.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5).fill()
+        }
+    }
+
+    // MARK: - Horizontal rule
+
+    /// A 1pt line across the container at the vertical middle of the
+    /// clear-painted `---` line fragment. Anchored on `lineFragmentRect`
+    /// (stable) rather than `boundingRect` (see class doc).
+    private nonisolated func drawThematicBreaks(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let container = textContainers.first else { return }
+        let color = ruleColor ?? NSColor.separatorColor
+        forEachTaggedRun(.marcdownThematicBreak, in: glyphsToShow, drawn: &drawnRuleRanges) { value, effective in
+            guard let flag = value as? Bool, flag else { return }
+            let glyphs = glyphRange(forCharacterRange: effective, actualCharacterRange: nil)
+            guard glyphs.length > 0 else { return }
+            let fragment = lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil)
+            let rect = NSRect(x: origin.x, y: origin.y + fragment.midY - 0.5, width: container.size.width, height: 1)
+            color.setFill()
+            rect.fill()
+        }
+    }
+
     // MARK: - Code block container
 
     /// Paints a single rounded rect behind each `.marcdownCodeBlock` run.
@@ -325,17 +430,7 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
     /// rather than wrapping the text glyphs, mimicking the Raycast Notes
     /// look. Runs once per draw cycle per block via `drawnCodeBlockRanges`.
     private nonisolated func drawCodeBlockBackgrounds(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
-        drawnCodeBlockRanges.removeAll(keepingCapacity: true)
-
-        guard let storage = textStorage else { return }
         guard let container = textContainers.first else { return }
-        guard glyphsToShow.length > 0 else { return }
-
-        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
-        guard charRange.length > 0 else { return }
-
-        let storageLength = storage.length
-        let upper = min(charRange.location + charRange.length, storageLength)
 
         // Container geometry. `containerSize.width` reflects the text view's
         // current laid-out width when `widthTracksTextView` is true.
@@ -348,59 +443,59 @@ final class CheckboxIconLayoutManager: NSLayoutManager {
 
         let fillColor = codeBlockFillColor ?? NSColor.gray.withAlphaComponent(0.10)
 
-        var probe = charRange.location
-        while probe < upper {
-            var effective = NSRange(location: 0, length: 0)
-            let value = storage.attribute(
-                .marcdownCodeBlock,
-                at: probe,
-                longestEffectiveRange: &effective,
-                in: NSRange(location: 0, length: storageLength)
+        forEachTaggedRun(.marcdownCodeBlock, in: glyphsToShow, drawn: &drawnCodeBlockRanges) { value, effective in
+            guard let flag = value as? Bool, flag else { return }
+            let blockGlyphRange = glyphRange(forCharacterRange: effective, actualCharacterRange: nil)
+            guard blockGlyphRange.length > 0 else { return }
+            let bounding = boundingRect(forGlyphRange: blockGlyphRange, in: container)
+            // Translate into view coordinates and stretch to full container
+            // width minus inset. The vertical extent is whatever the glyphs
+            // occupied — for an empty fenced block this is still the two
+            // fence lines' height, so the container remains visible. Expand
+            // the bounding rect by 6pt top and 6pt bottom so the fence lines
+            // have breathing room inside the rounded container rather than
+            // sitting flush against its edges. Horizontal breathing room is
+            // provided by the paragraph-style indents on the code block run.
+            var rect = NSRect(
+                x: origin.x + horizontalInset,
+                y: origin.y + bounding.origin.y,
+                width: max(0, containerWidth - horizontalInset * 2),
+                height: bounding.height
             )
-            if let flag = value as? Bool, flag, effective.length > 0 {
-                if !drawnCodeBlockRanges.contains(effective) {
-                    drawnCodeBlockRanges.insert(effective)
+            rect.origin.y -= 6
+            rect.size.height += 12
+            guard rect.width > 0, rect.height > 0 else { return }
+            let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+            fillColor.setFill()
+            path.fill()
+        }
+    }
 
-                    let blockGlyphRange = glyphRange(
-                        forCharacterRange: effective,
-                        actualCharacterRange: nil
-                    )
-                    if blockGlyphRange.length > 0 {
-                        let bounding = boundingRect(
-                            forGlyphRange: blockGlyphRange,
-                            in: container
-                        )
-                        // Translate into view coordinates and stretch to
-                        // full container width minus inset. The vertical
-                        // extent is whatever the glyphs occupied — for an
-                        // empty fenced block this is still the two fence
-                        // lines' height, so the container remains visible.
-                        // Expand the bounding rect by 6pt top and 6pt bottom
-                        // so the fence lines have breathing room inside the
-                        // rounded container rather than sitting flush against
-                        // its edges. Horizontal breathing room is provided by
-                        // the paragraph-style indents on the code block run.
-                        var rect = NSRect(
-                            x: origin.x + horizontalInset,
-                            y: origin.y + bounding.origin.y,
-                            width: max(0, containerWidth - horizontalInset * 2),
-                            height: bounding.height
-                        )
-                        rect.origin.y -= 6
-                        rect.size.height += 12
-                        if rect.width > 0, rect.height > 0 {
-                            let path = NSBezierPath(
-                                roundedRect: rect,
-                                xRadius: cornerRadius,
-                                yRadius: cornerRadius
-                            )
-                            fillColor.setFill()
-                            path.fill()
-                        }
-                    }
-                }
-            }
-            probe = max(probe + 1, effective.location + effective.length)
+    // MARK: - Code language badge
+
+    /// Right-aligned language name on the (clear-painted) opening fence
+    /// line, 4pt smaller than the code font, secondary colour. Uses the same
+    /// baseline conversion as `drawOrderedNumber`.
+    private nonisolated func drawCodeLanguageBadges(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let container = textContainers.first else { return }
+        forEachTaggedRun(.marcdownCodeLanguage, in: glyphsToShow, drawn: &drawnBadgeRanges) { value, effective in
+            guard let language = value as? String else { return }
+            let glyphs = glyphRange(forCharacterRange: effective, actualCharacterRange: nil)
+            guard glyphs.length > 0 else { return }
+            let fragment = lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil)
+            let baseline = location(forGlyphAt: glyphs.location)
+            let size = max(9, orderedOverlayFontSize(forGlyphAt: glyphs.location) - 4)
+            let font = NSFont.monospacedSystemFont(ofSize: size, weight: .medium)
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+            let width = (language as NSString).size(withAttributes: attributes).width
+            let point = NSPoint(
+                x: origin.x + container.size.width - 14 - width,
+                y: origin.y + fragment.origin.y + baseline.y - font.ascender
+            )
+            (language as NSString).draw(at: point, withAttributes: attributes)
         }
     }
 }

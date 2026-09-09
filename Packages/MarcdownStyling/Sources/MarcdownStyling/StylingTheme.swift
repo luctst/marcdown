@@ -13,6 +13,12 @@ public struct StylingTheme {
     public var codeBackground: NSColor
     public var codeBlockBackground: NSColor
     public var quoteBar: NSColor
+    /// Background painted behind `==highlighted==` text.
+    public var highlight: NSColor
+    /// Horizontal rule drawn in place of `---`.
+    public var rule: NSColor
+    /// Multiplier applied to every line box. 1.2 is the Bear-like "airy" default.
+    public var lineHeightMultiple: CGFloat
 
     public init(
         body: NSColor,
@@ -20,7 +26,10 @@ public struct StylingTheme {
         accent: NSColor,
         codeBackground: NSColor,
         codeBlockBackground: NSColor,
-        quoteBar: NSColor
+        quoteBar: NSColor,
+        highlight: NSColor = NSColor.systemYellow.withAlphaComponent(0.35),
+        rule: NSColor = .separatorColor,
+        lineHeightMultiple: CGFloat = 1.2
     ) {
         self.body = body
         self.dim = dim
@@ -28,6 +37,9 @@ public struct StylingTheme {
         self.codeBackground = codeBackground
         self.codeBlockBackground = codeBlockBackground
         self.quoteBar = quoteBar
+        self.highlight = highlight
+        self.rule = rule
+        self.lineHeightMultiple = lineHeightMultiple
     }
 
     /// Default theme using AppKit semantic colors.

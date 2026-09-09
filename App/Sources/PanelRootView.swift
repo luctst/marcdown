@@ -37,10 +37,9 @@ func nextActiveOverlay(from current: ActiveOverlay, toggle: OverlayToggle) -> Ac
 /// unit-tested without mounting `PanelRootView` or constructing a `NotesStore`.
 ///
 /// The order returned here is the order users see in the palette and is
-/// load-bearing for keyboard navigation tests. The actionable Commands rows
-/// come first; the non-actionable Markdown reference rows are appended last
-/// and tagged `section: .markdown` so the view layer renders them under their
-/// own header.
+/// load-bearing for keyboard navigation tests. The Commands rows come first;
+/// the Markdown command rows are appended last and tagged
+/// `section: .markdown` so the view layer renders them under their own header.
 @MainActor
 func makePaletteActions(
     setOverlay: @escaping @MainActor (ActiveOverlay) -> Void,
@@ -49,7 +48,8 @@ func makePaletteActions(
     duplicate: @escaping @MainActor () -> Void,
     delete: @escaping @MainActor () -> Void,
     prev: @escaping @MainActor () -> Void,
-    next: @escaping @MainActor () -> Void
+    next: @escaping @MainActor () -> Void,
+    perform: @escaping @MainActor (EditorCommand) -> Void
 ) -> [PaletteAction] {
     let commands: [PaletteAction] = [
         PaletteAction(id: "new-note", title: "New Note", icon: "plus", shortcutLabel: "⌘N") {
@@ -92,48 +92,40 @@ func makePaletteActions(
             kind: .submenu(.exportFormat)
         ),
     ]
-    return commands + makeMarkdownReferenceRows()
+    return commands + makeMarkdownRows(setOverlay: setOverlay, perform: perform)
 }
 
-/// Builds the non-actionable Markdown reference rows shown in the palette's
-/// second section. Each row's `shortcutLabel` is the syntax itself (e.g.
-/// `**x**` for Bold) so the existing chip column doubles as a syntax cheat
-/// sheet without new chrome.
-///
-/// The list is intentionally conservative — it mirrors the visit methods in
-/// `MarcdownStyling.StyleWalker` that produce a clean one-liner. Tables,
-/// images, and thematic breaks are deferred. See plan §3 for the full table.
+/// The palette's Markdown section: one leaf per `EditorCommand`, chip shows
+/// the chord. Every handler owns its overlay state (dismiss, then perform),
+/// per the contract locked in `CommandPaletteActionContractTests`.
 @MainActor
-func makeMarkdownReferenceRows() -> [PaletteAction] {
-    [
-        markdownReference(id: "md-bold", title: "Bold", icon: "bold", syntax: "**x**"),
-        markdownReference(id: "md-italic", title: "Italic", icon: "italic", syntax: "*x*"),
-        markdownReference(id: "md-heading", title: "Heading", icon: "number", syntax: "# x"),
-        markdownReference(id: "md-list", title: "List", icon: "list.bullet", syntax: "- x"),
-        markdownReference(id: "md-ordered-list", title: "Ordered list", icon: "list.number", syntax: "1. x"),
-        markdownReference(
-            id: "md-inline-code",
-            title: "Inline code",
-            icon: "chevron.left.forwardslash.chevron.right",
-            syntax: "`x`"
-        ),
-        markdownReference(id: "md-code-block", title: "Code block", icon: "curlybraces", syntax: "```x```"),
-        markdownReference(id: "md-link", title: "Link", icon: "link", syntax: "[x](y)"),
-        markdownReference(id: "md-quote", title: "Quote", icon: "text.quote", syntax: "> x"),
-        markdownReference(id: "md-strikethrough", title: "Strikethrough", icon: "strikethrough", syntax: "~~x~~"),
+func makeMarkdownRows(
+    setOverlay: @escaping @MainActor (ActiveOverlay) -> Void,
+    perform: @escaping @MainActor (EditorCommand) -> Void
+) -> [PaletteAction] {
+    let rows: [(id: String, title: String, icon: String, chord: String, command: EditorCommand)] = [
+        ("md-bold", "Bold", "bold", "⌘B", .bold),
+        ("md-italic", "Italic", "italic", "⌘I", .italic),
+        ("md-heading-1", "Heading 1", "number", "⌥⌘1", .heading(1)),
+        ("md-heading-2", "Heading 2", "number", "⌥⌘2", .heading(2)),
+        ("md-heading-3", "Heading 3", "number", "⌥⌘3", .heading(3)),
+        ("md-list", "Bullet list", "list.bullet", "⇧⌘L", .bulletList),
+        ("md-ordered-list", "Numbered list", "list.number", "⇧⌘N", .orderedList),
+        ("md-task", "Task list", "checklist", "⇧⌘T", .taskList),
+        ("md-quote", "Quote", "text.quote", "⇧⌘B", .quote),
+        ("md-inline-code", "Inline code", "chevron.left.forwardslash.chevron.right", "⌘E", .inlineCode),
+        ("md-code-block", "Code block", "curlybraces", "", .codeBlock),
+        ("md-link", "Link", "link", "⇧⌘K", .link),
+        ("md-strikethrough", "Strikethrough", "strikethrough", "⇧⌘X", .strikethrough),
+        ("md-highlight", "Highlight", "highlighter", "⇧⌘H", .highlight),
+        ("md-divider", "Divider", "minus", "", .divider),
     ]
-}
-
-@MainActor
-private func markdownReference(id: String, title: String, icon: String, syntax: String) -> PaletteAction {
-    PaletteAction(
-        id: id,
-        title: title,
-        icon: icon,
-        shortcutLabel: syntax,
-        kind: .reference,
-        section: .markdown
-    )
+    return rows.map { row in
+        PaletteAction(id: row.id, title: row.title, icon: row.icon, shortcutLabel: row.chord, section: .markdown) {
+            setOverlay(.none)
+            perform(row.command)
+        }
+    }
 }
 
 struct PanelRootView: View {
@@ -222,6 +214,11 @@ struct PanelRootView: View {
             // the panel always reopens to a clean editor view.
             activeOverlay = .none
             paletteSubMode = .root
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .marcdownEditorSlashMenu)) { _ in
+            guard activeOverlay == .none else { return }
+            paletteSubMode = .blockInsert
+            withAnimation(.easeOut(duration: 0.15)) { activeOverlay = .palette }
         }
     }
 
@@ -398,22 +395,37 @@ struct PanelRootView: View {
             duplicate: { Task { await store.duplicateCurrent() } },
             delete: { deleteCurrentNote() },
             prev: { store.prev() },
-            next: { store.next() }
+            next: { store.next() },
+            perform: { command in
+                NotificationCenter.default.post(
+                    name: .marcdownEditorPerformCommand,
+                    object: nil,
+                    userInfo: [EditorCommandNotification.key: command]
+                )
+            }
         )
     }
 
     // MARK: - Overlay state transitions
 
+    // Closing with the same key routes through `dismissActiveOverlay` so the
+    // palette sub-mode resets and the editor regains focus, exactly like ESC.
     private func togglePalette() {
-        withAnimation(.easeOut(duration: 0.15)) {
-            activeOverlay = nextActiveOverlay(from: activeOverlay, toggle: .palette)
+        let next = nextActiveOverlay(from: activeOverlay, toggle: .palette)
+        if next == .none {
+            dismissActiveOverlay()
+            return
         }
+        withAnimation(.easeOut(duration: 0.15)) { activeOverlay = next }
     }
 
     private func toggleSwitcher() {
-        withAnimation(.easeOut(duration: 0.15)) {
-            activeOverlay = nextActiveOverlay(from: activeOverlay, toggle: .switcher)
+        let next = nextActiveOverlay(from: activeOverlay, toggle: .switcher)
+        if next == .none {
+            dismissActiveOverlay()
+            return
         }
+        withAnimation(.easeOut(duration: 0.15)) { activeOverlay = next }
     }
 
     private func dismissActiveOverlay() {

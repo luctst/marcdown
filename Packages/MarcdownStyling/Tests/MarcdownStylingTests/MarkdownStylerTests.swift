@@ -106,13 +106,15 @@ struct MarkdownStylerTests {
         #expect(outroFont?.fontDescriptor.symbolicTraits.contains(.monoSpace) == false)
     }
 
-    @Test func blockquoteAppliesDimColor() {
+    @Test func blockquoteMarkerIsClearPaintedAndBodyKeepsColor() {
         let styler = MarkdownStyler()
         let source = "> quoted line"
         let attributed = styler.attributedString(for: source)
 
-        let color = attributed.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
-        #expect(color == StylingTheme.system.dim)
+        let markerColor = attributed.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        #expect(markerColor == NSColor.clear)
+        let bodyColor = attributed.attribute(.foregroundColor, at: 2, effectiveRange: nil) as? NSColor
+        #expect(bodyColor == StylingTheme.system.body)
     }
 
     // MARK: - restyle(storage:source:)
@@ -150,5 +152,43 @@ struct MarkdownStylerTests {
         let font = storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
         #expect(font != nil)
         #expect(font?.pointSize ?? 0 > 14)
+    }
+
+    @Test func fenceLinesAreClearPaintedAndOpeningFenceCarriesLanguage() {
+        let styler = MarkdownStyler()
+        let source = "```swift\nlet x = 1\n```"
+        let storage = NSTextStorage(string: source)
+        styler.restyle(storage: storage, source: source)
+
+        #expect(storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor == NSColor.clear)
+        #expect(storage.attribute(.marcdownCodeLanguage, at: 0, effectiveRange: nil) as? String == "swift")
+        let closing = (source as NSString).length - 1
+        #expect(storage.attribute(.foregroundColor, at: closing, effectiveRange: nil) as? NSColor == NSColor.clear)
+        #expect(storage.attribute(.marcdownCodeLanguage, at: closing, effectiveRange: nil) == nil)
+        #expect(
+            storage.attribute(.foregroundColor, at: 10, effectiveRange: nil) as? NSColor == StylingTheme.system.body)
+    }
+
+    @Test func focusedFenceLineRevealsDimFenceAndHidesBadge() {
+        let styler = MarkdownStyler()
+        let source = "```swift\nlet x = 1\n```"
+        let storage = NSTextStorage(string: source)
+        styler.restyle(storage: storage, source: source, focusLine: FocusLine(lineStart: 0, lineLength: 8))
+
+        #expect(storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor == StylingTheme.system.dim)
+        #expect(storage.attribute(.marcdownCodeLanguage, at: 0, effectiveRange: nil) == nil)
+    }
+
+    @Test func fenceLikeBodyLineInsideLongerFenceKeepsBodyColour() {
+        let styler = MarkdownStyler()
+        let source = "````\n```\n````"
+        let storage = NSTextStorage(string: source)
+        styler.restyle(storage: storage, source: source)
+
+        #expect(storage.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor == NSColor.clear)
+        #expect(
+            storage.attribute(.foregroundColor, at: 5, effectiveRange: nil) as? NSColor == StylingTheme.system.body)
+        let closing = (source as NSString).length - 1
+        #expect(storage.attribute(.foregroundColor, at: closing, effectiveRange: nil) as? NSColor == NSColor.clear)
     }
 }

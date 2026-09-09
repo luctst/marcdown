@@ -20,8 +20,9 @@ extension Notification.Name {
 /// and can be restyled in place on every keystroke without disrupting the
 /// user's cursor or selection.
 ///
-/// There are no formatting hotkeys. The user types raw markdown; the styler
-/// reacts.
+/// Formatting commands (⌘B, ⌘I, …) are caught in `FocusOnAttachTextView.
+/// performKeyEquivalent` and routed to `Coordinator.perform`, which is also
+/// the entry point for the command palette and the `/` menu.
 public struct NoteEditorView: NSViewRepresentable {
     @Binding private var text: String
 
@@ -42,6 +43,8 @@ public struct NoteEditorView: NSViewRepresentable {
         // Passing the resolved color (rather than the theme) keeps the
         // layout manager free of `@MainActor` coupling for its draw path.
         layoutManager.codeBlockFillColor = context.coordinator.codeBlockFillColor
+        layoutManager.quoteBarColor = context.coordinator.quoteBarColor
+        layoutManager.ruleColor = context.coordinator.ruleColor
         storage.addLayoutManager(layoutManager)
 
         // The concealment delegate suppresses glyphs whose characters are
@@ -57,6 +60,9 @@ public struct NoteEditorView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.checkboxClickHandler = { [weak coordinator = context.coordinator] charIndex in
             coordinator?.toggleCheckbox(at: charIndex)
+        }
+        textView.commandHandler = { [weak coordinator = context.coordinator] command in
+            coordinator?.perform(command) ?? false
         }
         textView.allowsUndo = true
         textView.isRichText = false
@@ -78,6 +84,8 @@ public struct NoteEditorView: NSViewRepresentable {
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
         textView.font = NSFont(name: "AvenirNext-Regular", size: 15) ?? NSFont.systemFont(ofSize: 15)
+        textView.defaultParagraphStyle = context.coordinator.baseParagraphStyle
+        textView.typingAttributes[.paragraphStyle] = context.coordinator.baseParagraphStyle
         textView.textContainerInset = NSSize(width: 16, height: 16)
 
         let scrollView = NSScrollView()
@@ -126,6 +134,13 @@ public struct NoteEditorView: NSViewRepresentable {
         /// to the layout manager without coupling the layout manager's
         /// `nonisolated` draw path to `@MainActor` types.
         var codeBlockFillColor: NSColor { styler.theme.codeBlockBackground }
+        /// Blockquote bar colour, sourced from the same theme as the styler.
+        var quoteBarColor: NSColor { styler.theme.quoteBar }
+        /// Horizontal rule colour, sourced from the same theme as the styler.
+        var ruleColor: NSColor { styler.theme.rule }
+        /// Seeds the text view's default/typing paragraph style so the caret
+        /// on an empty note is as tall as the styler's line boxes.
+        var baseParagraphStyle: NSParagraphStyle { styler.baseParagraphStyle }
         /// Held strongly because `NSLayoutManager.delegate` is `weak`.
         let layoutDelegate = ConcealmentLayoutDelegate()
         /// Token for the focus-restore observer, removed on deinit. Mirrors
@@ -134,6 +149,21 @@ public struct NoteEditorView: NSViewRepresentable {
         /// nonisolated `deinit` can read the token to unregister; access from
         /// `init` and the observer block stays on `MainActor`.
         private nonisolated(unsafe) var focusObserver: NSObjectProtocol?
+        private nonisolated(unsafe) var commandObserver: NSObjectProtocol?
+        /// Set when the last `shouldChangeText` posted the slash-menu
+        /// notification. Read by tests; the App reacts to the notification.
+        private(set) var didRequestSlashMenu = false
+        /// The line the last restyle revealed. Caret moves inside that line
+        /// don't change what is concealed, so `textViewDidChangeSelection`
+        /// skips the full re-parse for them.
+        private(set) var revealedFocusLine: FocusLine?
+        /// True while `apply(_:undoName:in:)` is inside
+        /// `NSTextView.shouldChangeText(in:replacementString:)`, which
+        /// re-enters `textView(_:shouldChangeTextIn:replacementString:)`.
+        /// Coordinator-driven edits must pass straight through there:
+        /// otherwise unwrapping `**https://x.y/**` hands the delegate a bare
+        /// URL over a range and the paste-link branch hijacks it.
+        private var isApplyingOutcome = false
 
         init(text: Binding<String>) {
             self.text = text
@@ -152,11 +182,25 @@ public struct NoteEditorView: NSViewRepresentable {
                     self?.reclaimFirstResponder()
                 }
             }
+            commandObserver = NotificationCenter.default.addObserver(
+                forName: .marcdownEditorPerformCommand,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                let command = notification.userInfo?[EditorCommandNotification.key] as? EditorCommand
+                MainActor.assumeIsolated {
+                    guard let self, let command else { return }
+                    self.perform(command)
+                }
+            }
         }
 
         deinit {
             if let focusObserver {
                 NotificationCenter.default.removeObserver(focusObserver)
+            }
+            if let commandObserver {
+                NotificationCenter.default.removeObserver(commandObserver)
             }
         }
 
@@ -172,11 +216,13 @@ public struct NoteEditorView: NSViewRepresentable {
 
         func restyle() {
             guard let storage else { return }
-            styler.restyle(
-                storage: storage,
-                source: storage.string,
-                focusLine: currentFocusLine()
-            )
+            restyle(storage: storage)
+        }
+
+        private func restyle(storage: NSTextStorage) {
+            let focus = currentFocusLine()
+            styler.restyle(storage: storage, source: storage.string, focusLine: focus)
+            revealedFocusLine = focus
         }
 
         public func textDidChange(_ notification: Notification) {
@@ -193,11 +239,7 @@ public struct NoteEditorView: NSViewRepresentable {
             // Restyle first so the attributed buffer is up to date, then
             // propagate the plain string to the binding for the view model's
             // debounced save to pick up.
-            styler.restyle(
-                storage: storage,
-                source: storage.string,
-                focusLine: currentFocusLine()
-            )
+            restyle(storage: storage)
             text.wrappedValue = storage.string
             // Checkbox markers may have been added/removed by this edit;
             // refresh the pointing-hand hover rects so the cursor tracks
@@ -215,11 +257,8 @@ public struct NoteEditorView: NSViewRepresentable {
             if textView.hasMarkedText() { return }
             // Focus-line reveal: restyle so the previously-focused line
             // re-conceals and the newly-focused line reveals.
-            styler.restyle(
-                storage: storage,
-                source: storage.string,
-                focusLine: currentFocusLine()
-            )
+            if currentFocusLine() == revealedFocusLine { return }
+            restyle(storage: storage)
         }
 
         /// Compute a `FocusLine` for the current selection in the active
@@ -288,6 +327,12 @@ public struct NoteEditorView: NSViewRepresentable {
             if selector == #selector(NSResponder.moveRight(_:)) {
                 return handleArrow(in: textView, direction: .right)
             }
+            if selector == #selector(NSResponder.moveLeftAndModifySelection(_:)) {
+                return handleArrow(in: textView, direction: .left, extend: true)
+            }
+            if selector == #selector(NSResponder.moveRightAndModifySelection(_:)) {
+                return handleArrow(in: textView, direction: .right, extend: true)
+            }
             return false
         }
 
@@ -297,9 +342,13 @@ public struct NoteEditorView: NSViewRepresentable {
             guard let storage = textView.textStorage else { return false }
             if textView.hasMarkedText() { return false }
             let selection = textView.selectedRange()
-            // Selection-based indent (multiple lines) — TODO. For now, only
-            // handle the caret case; with a selection, fall through.
-            if selection.length > 0 { return false }
+            if selection.length > 0 {
+                return applyThenRenumber(
+                    ListIndentation.indentOutcome(buffer: storage.string, selection: selection),
+                    undoName: "Indent List Items",
+                    in: textView
+                )
+            }
             let cursor = selection.location
             switch ListIndentation.indentOutcome(buffer: storage.string, cursorOffset: cursor) {
             case .noOp:
@@ -323,7 +372,13 @@ public struct NoteEditorView: NSViewRepresentable {
             guard let storage = textView.textStorage else { return false }
             if textView.hasMarkedText() { return false }
             let selection = textView.selectedRange()
-            if selection.length > 0 { return false }
+            if selection.length > 0 {
+                return applyThenRenumber(
+                    ListIndentation.outdentOutcome(buffer: storage.string, selection: selection),
+                    undoName: "Outdent List Items",
+                    in: textView
+                )
+            }
             let cursor = selection.location
             switch ListIndentation.outdentOutcome(buffer: storage.string, cursorOffset: cursor) {
             case .noOp:
@@ -365,13 +420,20 @@ public struct NoteEditorView: NSViewRepresentable {
         /// If the character immediately adjacent (in the motion direction)
         /// carries `.marcdownConcealed`, jump the entire concealed run in
         /// one motion. Otherwise return `false` so AppKit's default single-
-        /// character motion runs (Thomas §1c).
-        private func handleArrow(in textView: NSTextView, direction: ArrowDirection) -> Bool {
+        /// character motion runs (Thomas §1c). With `extend`, the selection's
+        /// active end (the caret) jumps the run instead, growing the
+        /// selection in one step.
+        private func handleArrow(
+            in textView: NSTextView,
+            direction: ArrowDirection,
+            extend: Bool = false
+        ) -> Bool {
             guard let storage = textView.textStorage else { return false }
             if textView.hasMarkedText() { return false }
             let selection = textView.selectedRange()
-            if selection.length > 0 { return false }
-            let cursor = selection.location
+            if selection.length > 0, !extend { return false }
+            // The caret end is the active end for shift-extended moves.
+            let cursor = direction == .right ? selection.location + selection.length : selection.location
             let length = storage.length
 
             // Use the logical-concealment attribute (mirrored by the styler)
@@ -392,7 +454,13 @@ public struct NoteEditorView: NSViewRepresentable {
                     in: NSRange(location: 0, length: length)
                 )
                 let target = effective.location + effective.length
-                textView.setSelectedRange(NSRange(location: target, length: 0))
+                if extend {
+                    textView.setSelectedRange(
+                        NSRange(location: selection.location, length: target - selection.location)
+                    )
+                } else {
+                    textView.setSelectedRange(NSRange(location: target, length: 0))
+                }
                 return true
             case .left:
                 guard cursor > 0 else { return false }
@@ -409,7 +477,13 @@ public struct NoteEditorView: NSViewRepresentable {
                     in: NSRange(location: 0, length: length)
                 )
                 let target = effective.location
-                textView.setSelectedRange(NSRange(location: target, length: 0))
+                if extend {
+                    textView.setSelectedRange(
+                        NSRange(location: target, length: selection.location + selection.length - target)
+                    )
+                } else {
+                    textView.setSelectedRange(NSRange(location: target, length: 0))
+                }
                 return true
             }
         }
@@ -750,48 +824,84 @@ public struct NoteEditorView: NSViewRepresentable {
             shouldChangeTextIn affectedCharRange: NSRange,
             replacementString: String?
         ) -> Bool {
-            guard
-                let storage = textView.textStorage,
-                let replacement = replacementString,
-                replacement == " ",
-                affectedCharRange.length == 0,
-                !textView.hasMarkedText()
+            guard let storage = textView.textStorage, let replacement = replacementString, !textView.hasMarkedText(),
+                !isApplyingOutcome
             else { return true }
-
-            // Compute line content up to (but not including) the cursor.
             let buffer = storage.string
+
+            if affectedCharRange.length > 0 {
+                // Paste or drop of a URL over selected text → markdown link.
+                if InlineFormat.isHTTPURL(replacement) {
+                    let url = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return !apply(
+                        InlineFormat.linkOutcome(buffer: buffer, selection: affectedCharRange, url: url),
+                        undoName: "Paste Link", in: textView)
+                }
+                // A typed delimiter wraps the selection. Dead-key layouts
+                // deliver `` ` `` as a composition whose event characters
+                // differ from the final string — those fall through.
+                if (replacement as NSString).length == 1, isLiveKeystroke(for: replacement) {
+                    return !apply(
+                        SelectionWrap.outcome(buffer: buffer, selection: affectedCharRange, typed: replacement),
+                        undoName: "Wrap Selection", in: textView)
+                }
+                return true
+            }
+
+            if replacement == " " {
+                return allowSpaceOrExpandCheckbox(in: textView, storage: storage, cursor: affectedCharRange.location)
+            }
+            if replacement == "/" {
+                let prefix = linePrefix(before: affectedCharRange.location, in: buffer)
+                // Inside a fence `/usr/local/bin` is a path, not a menu request.
+                let probe = min(affectedCharRange.location, storage.length - 1)
+                let inCodeBlock =
+                    probe >= 0 && storage.attribute(.marcdownCodeBlock, at: probe, effectiveRange: nil) != nil
+                didRequestSlashMenu = !inCodeBlock && prefix.allSatisfy { $0 == " " || $0 == "\t" }
+                if didRequestSlashMenu {
+                    // Deferred one tick so the overlay state change happens
+                    // outside this text-change transaction.
+                    Task { @MainActor in
+                        NotificationCenter.default.post(name: .marcdownEditorSlashMenu, object: nil)
+                    }
+                }
+            }
+            return true
+        }
+
+        /// True unless a keyDown is in flight whose characters differ from
+        /// `replacement` (dead-key composition). No current event (tests,
+        /// programmatic insertion) counts as live.
+        private func isLiveKeystroke(for replacement: String) -> Bool {
+            guard let event = NSApp.currentEvent, event.type == .keyDown else { return true }
+            return event.characters == replacement
+        }
+
+        /// Content of the caret's line from its start up to `cursor`.
+        func linePrefix(before cursor: Int, in buffer: String) -> String {
             let units = Array(buffer.utf16)
-            let cursor = affectedCharRange.location
-            guard cursor >= 0, cursor <= units.count else { return true }
+            guard cursor >= 0, cursor <= units.count else { return "" }
             var lineStart = cursor
             while lineStart > 0, units[lineStart - 1] != 0x0A {
                 lineStart -= 1
             }
-            let prefixSlice = Array(units[lineStart..<cursor])
-            let prefix: String
-            if prefixSlice.isEmpty {
-                prefix = ""
-            } else {
-                prefix = prefixSlice.withUnsafeBufferPointer {
-                    String(utf16CodeUnits: $0.baseAddress!, count: $0.count)
-                }
+            return String(decoding: units[lineStart..<cursor], as: UTF16.self)
+        }
+
+        /// The pre-existing `[]` + space → `- [ ] ` expansion, unchanged in
+        /// behaviour, moved out of the delegate method.
+        private func allowSpaceOrExpandCheckbox(in textView: NSTextView, storage: NSTextStorage, cursor: Int) -> Bool {
+            let prefix = linePrefix(before: cursor, in: storage.string)
+            guard let expansion = CheckboxAutoExpansion.expansionOnTypingSpace(beforeCursorOnLine: prefix) else {
+                return true
             }
-
-            guard
-                let expansion = CheckboxAutoExpansion.expansionOnTypingSpace(
-                    beforeCursorOnLine: prefix
-                )
-            else { return true }
-
+            let lineStart = cursor - (prefix as NSString).length
             let prefixRange = NSRange(location: lineStart, length: cursor - lineStart)
-            guard textView.shouldChangeText(in: prefixRange, replacementString: expansion) else {
-                return false
-            }
+            guard textView.shouldChangeText(in: prefixRange, replacementString: expansion) else { return false }
             textView.undoManager?.setActionName("Insert Checkbox")
             storage.replaceCharacters(in: prefixRange, with: expansion)
             textView.didChangeText()
-            let newCursor = lineStart + (expansion as NSString).length
-            textView.setSelectedRange(NSRange(location: newCursor, length: 0))
+            textView.setSelectedRange(NSRange(location: lineStart + (expansion as NSString).length, length: 0))
             return false
         }
 
@@ -825,6 +935,150 @@ public struct NoteEditorView: NSViewRepresentable {
             storage.replaceCharacters(in: middleRange, with: newChar)
             textView.didChangeText()
         }
+
+        // MARK: - Formatting commands
+
+        /// Single entry point for every formatting command. Returns `false`
+        /// when nothing changed so a ⌘-chord can fall through to AppKit.
+        @discardableResult
+        func perform(_ command: EditorCommand) -> Bool {
+            guard let textView, let storage else { return false }
+            if textView.hasMarkedText() { return false }
+            consumeSlashTrigger(in: textView)
+            let buffer = storage.string
+            let selection = textView.selectedRange()
+            switch command {
+            case .bold:
+                return apply(
+                    InlineFormat.toggleOutcome(buffer: buffer, selection: selection, delimiter: "**"),
+                    undoName: "Bold", in: textView)
+            case .italic:
+                return apply(
+                    InlineFormat.toggleOutcome(buffer: buffer, selection: selection, delimiter: "*"),
+                    undoName: "Italic", in: textView)
+            case .inlineCode:
+                return apply(
+                    InlineFormat.toggleOutcome(buffer: buffer, selection: selection, delimiter: "`"),
+                    undoName: "Inline Code", in: textView)
+            case .strikethrough:
+                return apply(
+                    InlineFormat.toggleOutcome(buffer: buffer, selection: selection, delimiter: "~~"),
+                    undoName: "Strikethrough", in: textView)
+            case .highlight:
+                return apply(
+                    InlineFormat.toggleOutcome(buffer: buffer, selection: selection, delimiter: "=="),
+                    undoName: "Highlight", in: textView)
+            case .link:
+                let clipboard = NSPasteboard.general.string(forType: .string) ?? ""
+                let url =
+                    InlineFormat.isHTTPURL(clipboard) ? clipboard.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+                return apply(
+                    InlineFormat.linkOutcome(buffer: buffer, selection: selection, url: url),
+                    undoName: "Link", in: textView)
+            default:
+                return performBlock(command, in: textView)
+            }
+        }
+
+        /// If the caret line is exactly `/` (after optional indent) the user
+        /// got here through the slash menu: delete the slash so the block
+        /// command lands on a clean line. Stateless on purpose — Escape
+        /// leaves the `/` in place like Notion, and any other line is untouched.
+        private func consumeSlashTrigger(in textView: NSTextView) {
+            guard let storage = textView.textStorage else { return }
+            let cursor = textView.selectedRange().location
+            let prefix = linePrefix(before: cursor, in: storage.string)
+            let trimmed = prefix.drop(while: { $0 == " " || $0 == "\t" })
+            guard trimmed == "/" else { return }
+            let units = Array(storage.string.utf16)
+            var lineEnd = cursor
+            while lineEnd < units.count, units[lineEnd] != 0x0A { lineEnd += 1 }
+            guard lineEnd == cursor else { return }
+            let slashRange = NSRange(location: cursor - 1, length: 1)
+            guard textView.shouldChangeText(in: slashRange, replacementString: "") else { return }
+            textView.undoManager?.setActionName("Remove Slash")
+            storage.replaceCharacters(in: slashRange, with: "")
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: cursor - 1, length: 0))
+        }
+
+        private func performBlock(_ command: EditorCommand, in textView: NSTextView) -> Bool {
+            guard let storage = textView.textStorage else { return false }
+            let buffer = storage.string
+            let selection = textView.selectedRange()
+            let kind: BlockKind
+            let undoName: String
+            switch command {
+            case .heading(let level):
+                kind = level == 0 ? .paragraph : .heading(level)
+                undoName = level == 0 ? "Paragraph" : "Heading \(level)"
+            case .bulletList:
+                kind = .bullet
+                undoName = "Bullet List"
+            case .orderedList:
+                kind = .ordered
+                undoName = "Numbered List"
+            case .taskList:
+                kind = .task
+                undoName = "Task List"
+            case .quote:
+                kind = .quote
+                undoName = "Quote"
+            case .codeBlock:
+                return apply(
+                    BlockFormat.codeBlockOutcome(buffer: buffer, selection: selection),
+                    undoName: "Code Block", in: textView)
+            case .divider:
+                return apply(
+                    BlockFormat.dividerOutcome(buffer: buffer, selection: selection),
+                    undoName: "Divider", in: textView)
+            default:
+                return false
+            }
+            return applyThenRenumber(
+                BlockFormat.toggleOutcome(buffer: buffer, selection: selection, kind: kind),
+                undoName: undoName, in: textView)
+        }
+
+        /// Applies `outcome`, renumbers the ordered run around the result, and
+        /// keeps a non-empty selection spanning the same lines (grown by the
+        /// renumber pass's length delta).
+        /// ponytail: assumes width changes land inside the selection;
+        /// a neighbour outside it crossing a digit boundary (9→10)
+        /// shifts the range by that delta. Map both ends if it bites.
+        private func applyThenRenumber(_ outcome: TextEditOutcome, undoName: String, in textView: NSTextView) -> Bool {
+            guard let storage = textView.textStorage else { return false }
+            guard apply(outcome, undoName: undoName, in: textView) else { return false }
+            let selected = textView.selectedRange()
+            let lengthBefore = storage.length
+            runRenumberPass(in: textView, around: selected.location)
+            if selected.length > 0 {
+                let length = selected.length + (storage.length - lengthBefore)
+                textView.setSelectedRange(NSRange(location: selected.location, length: length))
+            }
+            return true
+        }
+
+        /// The one place edits from pure helpers touch the storage: the
+        /// same shouldChange → replace → didChange → select dance every
+        /// keystroke handler already does, with a named undo group.
+        @discardableResult
+        func apply(_ outcome: TextEditOutcome, undoName: String, in textView: NSTextView) -> Bool {
+            guard let storage = textView.textStorage else { return false }
+            switch outcome {
+            case .noOp:
+                return false
+            case .replace(let range, let replacement, let selection):
+                isApplyingOutcome = true
+                defer { isApplyingOutcome = false }
+                guard textView.shouldChangeText(in: range, replacementString: replacement) else { return false }
+                textView.undoManager?.setActionName(undoName)
+                storage.replaceCharacters(in: range, with: replacement)
+                textView.didChangeText()
+                textView.setSelectedRange(selection)
+                return true
+            }
+        }
     }
 }
 
@@ -838,10 +1092,28 @@ private final class FocusOnAttachTextView: NSTextView {
     /// Called when the user clicks anywhere inside a `[X]` marker. Argument
     /// is the character index of the click.
     var checkboxClickHandler: ((Int) -> Void)?
+    /// Receives ⌘-chords the chord table recognises. Returns whether the
+    /// command changed anything; `false` lets AppKit's default run.
+    var commandHandler: ((EditorCommand) -> Bool)?
     /// Local monitor that re-invalidates cursor rects whenever modifier flags
     /// change, so the `.pointingHand` cursor appears/disappears over link
     /// labels as the user presses or releases the Command key.
     private var flagsMonitor: Any?
+
+    /// ⌘-keyDowns walk the view tree here before reaching `keyDown`. The
+    /// first-responder guard keeps chords from firing while a palette text
+    /// field owns the keyboard (DESIGN.md: chrome shortcuts are disabled
+    /// while an overlay is open). Chord sets are disjoint from the App's
+    /// SwiftUI `.keyboardShortcut` layer, so order between the two never
+    /// matters.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard window?.firstResponder === self,
+            let key = event.charactersIgnoringModifiers,
+            let command = EditorCommand.command(forKey: key, keyCode: event.keyCode, modifiers: event.modifierFlags),
+            commandHandler?(command) == true
+        else { return super.performKeyEquivalent(with: event) }
+        return true
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

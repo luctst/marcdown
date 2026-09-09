@@ -90,9 +90,11 @@ outside this scale is a smell — flag it in review.
 | `tertiary`    | 10pt | medium    | Inline status pills ("Current"); reserved for one-glance status |
 
 Editor body font lives separately from the chrome font. The editor is set in
-`NSFont.systemFont(ofSize: 14)` — see `NoteEditorView.swift:62` and
-`MarkdownStyler.init`. Heading sizes are derived from this base in
-`StyleWalker.headingSize`: H1 +10, H2 +7, H3 +4, H4 +2, H5 +1, H6 +0. **Do not
+Avenir Next Regular at 15pt — the `baseFont` default in `MarkdownStyler.init`
+(`MarkdownStyler.swift`), mirrored by `NoteEditorView` — with
+`StylingTheme.lineHeightMultiple` at 1.2. Headings stay in the body family:
+`StyleWalker.headingFont` derives them from the base via `NSFontManager`, bold,
+at the `headingSize` scale H1 +10, H2 +7, H3 +4, H4 +2, H5 +1, H6 +0. **Do not
 hardcode heading sizes elsewhere.** If you need to render markdown previews
 outside the editor, route them through `MarkdownStyler` so the scale stays
 consistent.
@@ -102,7 +104,8 @@ baseFont.pointSize, weight: .regular)` — see `StyleWalker.monospacedFont`. The
 chrome never uses a monospaced font; the editor body never uses a proportional
 font for code.
 
-System font, always. We do not bundle a typeface.
+System font for the chrome, always. Avenir Next ships with macOS, so we still
+do not bundle a typeface.
 
 ## Color
 
@@ -567,8 +570,8 @@ would trigger a revisit.
 - **Undo for destructive actions.** No undo in v1. When added, undo replaces
   the modal-confirmation gap; do not retrofit a confirmation alert in the
   meantime.
-- **Editor typography customization.** 14pt system, fixed. Revisit only if
-  long-form-writer feedback clusters on it.
+- **Editor typography customization.** Avenir Next 15pt, fixed. Revisit only
+  if long-form-writer feedback clusters on it.
 
 ---
 

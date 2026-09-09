@@ -16,6 +16,7 @@ struct StyleWalker: @preconcurrency MarkupWalker {
     private let theme: StylingTheme
     private let baseFont: NSFont
     private let index: LineOffsetIndex
+    private let monoCellWidth: CGFloat
 
     init(
         storage: NSTextStorage,
@@ -27,6 +28,8 @@ struct StyleWalker: @preconcurrency MarkupWalker {
         self.theme = theme
         self.baseFont = baseFont
         self.index = index
+        let mono = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
+        self.monoCellWidth = ("0" as NSString).size(withAttributes: [.font: mono]).width
     }
 
     // MARK: - Blocks
@@ -47,10 +50,11 @@ struct StyleWalker: @preconcurrency MarkupWalker {
             return
         }
 
-        let size = headingSize(for: heading.level)
-        let font = NSFontManager.shared
-            .convert(.systemFont(ofSize: size, weight: .bold), toHaveTrait: .boldFontMask)
-        addAttributes([.font: font], range: range)
+        addAttributes([.font: headingFont(for: heading.level)], range: range)
+        ParagraphStyling.mutate(in: storage, range: clampedToStorage(range)) { style in
+            style.paragraphSpacingBefore = headingSpacingBefore(for: heading.level)
+            style.paragraphSpacing = 4
+        }
 
         // ATX heading marker concealment — only for ATX (`# `, `## ` …).
         // Setext headings (`====` / `----` underlines) report a multi-line
@@ -152,17 +156,77 @@ struct StyleWalker: @preconcurrency MarkupWalker {
             descendInto(blockQuote)
             return
         }
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.firstLineHeadIndent = 12
-        paragraph.headIndent = 12
-        addAttributes(
-            [
-                .foregroundColor: theme.dim,
-                .paragraphStyle: paragraph,
-            ],
-            range: range
-        )
+        let clamped = clampedToStorage(range)
+        guard clamped.length > 0 else {
+            descendInto(blockQuote)
+            return
+        }
+        storage.addAttribute(.marcdownBlockquote, value: true, range: clamped)
+        styleBlockquoteLines(in: clamped)
         descendInto(blockQuote)
+    }
+
+    /// Per line of the quote: clear-paint the leading `>` run (monospaced so
+    /// it keeps a stable advance — the same treatment as list markers) and
+    /// hang the body under the first visible character. Lazy-continuation
+    /// lines with no marker get the same head indent so they align. Lines
+    /// are walked from their true start so a nested quote's visit (whose
+    /// node range begins mid-line) recomputes the same full-line prefix.
+    private func styleBlockquoteLines(in blockRange: NSRange) {
+        let storageString = storage.string as NSString
+        let upper = blockRange.location + blockRange.length
+        var lineStart = blockRange.location
+        while lineStart > 0, storageString.character(at: lineStart - 1) != 0x0A {
+            lineStart -= 1
+        }
+        let mono = monospacedFont()
+        var lastMarkerLength = 0
+        while lineStart < upper {
+            var lineEnd = lineStart
+            while lineEnd < upper, storageString.character(at: lineEnd) != 0x0A {
+                lineEnd += 1
+            }
+            let lineRange = NSRange(location: lineStart, length: lineEnd - lineStart)
+            if lineRange.length > 0 {
+                let markerLength = blockquoteMarkerLength(at: lineRange, in: storageString)
+                if markerLength > 0 {
+                    let markerRange = NSRange(location: lineStart, length: markerLength)
+                    storage.removeAttribute(.marcdownConcealed, range: markerRange)
+                    storage.addAttributes([.foregroundColor: NSColor.clear, .font: mono], range: markerRange)
+                    lastMarkerLength = markerLength
+                }
+                let hang = CGFloat(lastMarkerLength) * monoCellWidth
+                ParagraphStyling.mutate(in: storage, range: lineRange) { style in
+                    style.headIndent = hang
+                    style.firstLineHeadIndent = markerLength > 0 ? 0 : hang
+                }
+            }
+            if lineEnd >= upper { break }
+            lineStart = lineEnd + 1
+        }
+    }
+
+    /// UTF-16 length of the leading quote prefix: up to 3 spaces, then one
+    /// or more `>` each optionally followed by a space (`> `, `>> `, `> > `).
+    /// 0 when the line carries no marker.
+    private func blockquoteMarkerLength(at lineRange: NSRange, in storageString: NSString) -> Int {
+        let upper = lineRange.location + lineRange.length
+        var probe = lineRange.location
+        var leading = 0
+        while probe < upper, leading < 3, storageString.character(at: probe) == 0x20 {
+            probe += 1
+            leading += 1
+        }
+        var sawMarker = false
+        // 0x3E == '>'
+        while probe < upper, storageString.character(at: probe) == 0x3E {
+            sawMarker = true
+            probe += 1
+            if probe < upper, storageString.character(at: probe) == 0x20 {
+                probe += 1
+            }
+        }
+        return sawMarker ? probe - lineRange.location : 0
     }
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
@@ -173,24 +237,19 @@ struct StyleWalker: @preconcurrency MarkupWalker {
         // `.backgroundColor` here would render per-glyph rectangles under
         // the rounded fill and bleed past its edges. The container alone
         // owns the background.
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.paragraphSpacingBefore = 8
-        paragraph.paragraphSpacing = 8
+        addAttributes([.font: monospacedFont()], range: range)
         // 14pt of horizontal text inset on each side so the code text and
         // fence lines sit comfortably inside the rounded container the
         // layout manager paints from `.marcdownCodeBlock`. `tailIndent`
         // is negative per AppKit convention (offset from the trailing
         // edge of the text container).
-        paragraph.firstLineHeadIndent = 14
-        paragraph.headIndent = 14
-        paragraph.tailIndent = -14
-        addAttributes(
-            [
-                .font: monospacedFont(),
-                .paragraphStyle: paragraph,
-            ],
-            range: range
-        )
+        ParagraphStyling.mutate(in: storage, range: clampedToStorage(range)) { style in
+            style.paragraphSpacingBefore = 8
+            style.paragraphSpacing = 8
+            style.firstLineHeadIndent = 14
+            style.headIndent = 14
+            style.tailIndent = -14
+        }
 
         // Tag the entire block (including fence lines) so the layout
         // manager can locate the run and draw a single rounded container.
@@ -199,36 +258,55 @@ struct StyleWalker: @preconcurrency MarkupWalker {
             storage.addAttribute(.marcdownCodeBlock, value: true, range: clamped)
         }
 
-        // Dim the fence lines. Walk line-by-line through the block; a fence
-        // is a line whose first non-whitespace run is ``` or ~~~ followed by
-        // an optional info string. The AST guarantees we have a fenced
-        // block, so the first and last lines of the range are fences.
-        dimFenceLines(in: clamped)
+        // Conceal the fence lines. Walk line-by-line through the block; a
+        // fence is a line whose first non-whitespace run is ``` or ~~~
+        // followed by an optional info string. The AST guarantees we have a
+        // fenced block, so the first and last lines of the range are fences.
+        concealFenceLines(in: clamped, language: codeBlock.language)
     }
 
-    /// Scans the lines inside `blockRange` and applies `theme.dim` to any
-    /// line that consists of a code fence (``` or ~~~ with an optional info
-    /// string). Body lines are left at `theme.body` from the base attributes.
-    private func dimFenceLines(in blockRange: NSRange) {
+    /// Fence lines are clear-painted (monospaced already, so they keep an
+    /// advance and the caret can land on them) and the first one carries the
+    /// language tag. Focus-line reveal flips them to dim so the user still
+    /// sees ```` ``` ```` while editing that line.
+    ///
+    /// Only the first and last lines of the block are candidates: body lines
+    /// may legitimately look like fences (```` ``` ```` inside a four-backtick
+    /// block, `~~~` inside a backtick block) and must stay visible. Each
+    /// candidate still has to pass `isFenceLine`, because an unterminated
+    /// block at EOF ends on a body line.
+    private func concealFenceLines(in blockRange: NSRange, language: String?) {
         guard blockRange.length > 0 else { return }
         let storageString = storage.string as NSString
-        let upper = blockRange.location + blockRange.length
-        var lineStart = blockRange.location
-        while lineStart < upper {
-            var lineEnd = lineStart
-            while lineEnd < upper, storageString.character(at: lineEnd) != 0x0A {
-                lineEnd += 1
+        let lower = blockRange.location
+        var upper = lower + blockRange.length
+        // A trailing newline terminates the closing fence line; it is not an
+        // empty last line.
+        if storageString.character(at: upper - 1) == 0x0A {
+            upper -= 1
+        }
+
+        var firstEnd = lower
+        while firstEnd < upper, storageString.character(at: firstEnd) != 0x0A {
+            firstEnd += 1
+        }
+        let firstLine = NSRange(location: lower, length: firstEnd - lower)
+        if isFenceLine(at: firstLine, in: storageString) {
+            storage.removeAttribute(.marcdownConcealed, range: firstLine)
+            storage.addAttribute(.foregroundColor, value: NSColor.clear, range: firstLine)
+            if let language, !language.isEmpty {
+                storage.addAttribute(.marcdownCodeLanguage, value: language, range: firstLine)
             }
-            let lineLength = lineEnd - lineStart
-            if lineLength > 0 {
-                let lineRange = NSRange(location: lineStart, length: lineLength)
-                if isFenceLine(at: lineRange, in: storageString) {
-                    addAttributes([.foregroundColor: theme.dim], range: lineRange)
-                }
-            }
-            // Skip past the `\n` (if any).
-            if lineEnd >= upper { break }
-            lineStart = lineEnd + 1
+        }
+
+        var lastStart = upper
+        while lastStart > lower, storageString.character(at: lastStart - 1) != 0x0A {
+            lastStart -= 1
+        }
+        let lastLine = NSRange(location: lastStart, length: upper - lastStart)
+        if lastLine.location > firstLine.location, isFenceLine(at: lastLine, in: storageString) {
+            storage.removeAttribute(.marcdownConcealed, range: lastLine)
+            storage.addAttribute(.foregroundColor, value: NSColor.clear, range: lastLine)
         }
     }
 
@@ -263,7 +341,24 @@ struct StyleWalker: @preconcurrency MarkupWalker {
 
     mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {
         guard let range = index.nsRange(thematicBreak.range), range.length > 0 else { return }
-        addAttributes([.foregroundColor: theme.dim], range: range)
+        let clamped = clampedToStorage(range)
+        guard clamped.length > 0 else { return }
+        // Clear-paint (never `.null`-conceal): the rule is the whole line, so
+        // it must keep an advance for the caret to land on. The layout
+        // manager draws the rule in its place.
+        storage.removeAttribute(.marcdownConcealed, range: clamped)
+        storage.addAttributes(
+            [
+                .foregroundColor: NSColor.clear,
+                .font: monospacedFont(),
+                .marcdownThematicBreak: true,
+            ],
+            range: clamped
+        )
+        ParagraphStyling.mutate(in: storage, range: clamped) { style in
+            style.paragraphSpacingBefore = 8
+            style.paragraphSpacing = 8
+        }
     }
 
     mutating func visitUnorderedList(_ unorderedList: UnorderedList) {
@@ -465,6 +560,24 @@ struct StyleWalker: @preconcurrency MarkupWalker {
         case 4: return base + 2
         case 5: return base + 1
         default: return base
+        }
+    }
+
+    /// Headings share the body font family (Avenir Next by default) at the
+    /// theme scale, bolded. Falling back to the system font here is what made
+    /// headings look pasted in from another app.
+    private func headingFont(for level: Int) -> NSFont {
+        let manager = NSFontManager.shared
+        let sized = manager.convert(baseFont, toSize: headingSize(for: level))
+        return manager.convert(sized, toHaveTrait: .boldFontMask)
+    }
+
+    private func headingSpacingBefore(for level: Int) -> CGFloat {
+        switch level {
+        case 1: return 16
+        case 2: return 12
+        case 3: return 8
+        default: return 6
         }
     }
 

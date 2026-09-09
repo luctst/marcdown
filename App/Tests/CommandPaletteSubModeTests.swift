@@ -22,6 +22,11 @@ struct CommandPaletteSubModeTests {
         #expect(paletteSubModeAfterEscape(current: .exportFormat) == .root)
     }
 
+    @Test("⎋ from blockInsert dismisses instead of popping to root")
+    func escapeFromBlockInsertDismisses() {
+        #expect(paletteSubModeAfterEscape(current: .blockInsert) == nil)
+    }
+
     // MARK: - makeFormatChooserActions
 
     @Test("Format chooser exposes exactly three rows")

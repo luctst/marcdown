@@ -109,4 +109,27 @@ struct HTMLExporterTests {
 
         #expect(output.contains("<a href=\"https://example.com\">link</a>"))
     }
+
+    @Test func highlightExportsAsMark() {
+        let html = HTMLExporter.render(markdown: "say ==hi== there", title: "t")
+        #expect(html.contains("say <mark>hi</mark> there"))
+    }
+
+    @Test func highlightInsideFencedCodeIsNotMarked() {
+        let source = """
+            ```
+            if (a==1 && b==2)
+            ```
+            """
+        let html = HTMLExporter.render(markdown: source, title: "t")
+        // cmark escapes HTML inside code, so a mangled line would surface as
+        // `a&lt;mark&gt;1`; assert the original text survives instead.
+        #expect(html.contains("a==1 &amp;&amp; b==2"))
+        #expect(!html.contains("&lt;mark&gt;"))
+    }
+
+    @Test func highlightDoesNotCrossCRLFLines() {
+        let html = HTMLExporter.render(markdown: "==a\r\n\r\nb==", title: "t")
+        #expect(!html.contains("<mark>"))
+    }
 }

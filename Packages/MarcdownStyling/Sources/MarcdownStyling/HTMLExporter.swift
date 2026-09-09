@@ -14,7 +14,7 @@ public enum HTMLExporter {
     ///   - title: Plain-text title; HTML-escaped before injection.
     /// - Returns: A standalone HTML5 document string starting with `<!DOCTYPE html>`.
     public static func render(markdown: String, title: String) -> String {
-        let body = HTMLFormatter.format(markdown)
+        let body = HTMLFormatter.format(markHighlights(in: markdown))
         let escapedTitle = htmlEscape(title)
 
         return """
@@ -32,6 +32,37 @@ public enum HTMLExporter {
             </body>
             </html>
             """
+    }
+
+    /// `==text==` → `<mark>text</mark>`. cmark passes inline HTML through, so
+    /// this pre-pass is enough. Fenced blocks are passed through untouched.
+    /// ponytail: still rewrites inside inline code spans; switch to a
+    /// post-AST rewrite if that ever matters.
+    static func markHighlights(in markdown: String) -> String {
+        var inFence = false
+        // `components` (not `split`) so `\r\n` splits on the `\n` — Swift
+        // treats CRLF as a single `Character`, which `split` would not break.
+        return markdown.components(separatedBy: "\n").map { text -> String in
+            let trimmed = text.drop { $0 == " " || $0 == "\t" }
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                inFence.toggle()
+                return text
+            }
+            if inFence { return text }
+            let units = Array(text.utf16)
+            var rebuilt = ""
+            var cursor = 0
+            for span in HighlightScanner.scan(line: text) {
+                rebuilt += String(decoding: units[cursor..<span.location], as: UTF16.self)
+                rebuilt += "<mark>"
+                rebuilt += String(
+                    decoding: units[(span.location + 2)..<(span.location + span.length - 2)], as: UTF16.self)
+                rebuilt += "</mark>"
+                cursor = span.location + span.length
+            }
+            rebuilt += String(decoding: units[cursor...], as: UTF16.self)
+            return rebuilt
+        }.joined(separator: "\n")
     }
 
     // MARK: - Private
@@ -60,6 +91,7 @@ public enum HTMLExporter {
         blockquote { border-left: 4px solid rgba(127,127,127,.3); padding-left: 1rem; margin-left: 0; }
         h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin-top: 1.5rem; }
         img { max-width: 100%; height: auto; }
+        mark { background: rgba(255,214,10,.35); padding: 0 .1em; border-radius: 2px; }
 
         """
 }
