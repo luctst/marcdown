@@ -158,12 +158,15 @@ struct ListAttributeTests {
         }
     }
 
-    @Test func indentedBulletLeadingSpacesAreNotForcedMonospaced() {
+    /// Indent whitespace sits on the same monospaced grid as the marker so a
+    /// tab and two spaces indent by exactly one marker width (see
+    /// `IndentNormalisationTests`).
+    @Test func indentedBulletLeadingSpacesAreMonospaced() {
         let storage = restyle("  - foo")
         for index in 0...1 {
             let font = storage.attribute(.font, at: index, effectiveRange: nil) as? NSFont
             let isMono = font?.fontDescriptor.symbolicTraits.contains(.monoSpace) ?? false
-            #expect(isMono == false, "expected indent space \(index) to NOT be monospace")
+            #expect(isMono == true, "expected indent space \(index) to be monospace")
         }
     }
 

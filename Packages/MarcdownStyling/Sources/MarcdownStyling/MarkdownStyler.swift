@@ -18,11 +18,9 @@ public final class MarkdownStyler {
     /// Advance of one clear-painted marker cell (markers are forced
     /// monospaced) and of one base-font space — the two units a list prefix
     /// is made of. Computed once; fonts don't change during a styler's life.
-    private lazy var monoCellWidth: CGFloat = {
-        let mono = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
-        return ("0" as NSString).size(withAttributes: [.font: mono]).width
-    }()
+    private lazy var monoCellWidth: CGFloat = ("0" as NSString).size(withAttributes: [.font: monoFont]).width
     private lazy var spaceWidth: CGFloat = (" " as NSString).size(withAttributes: [.font: baseFont]).width
+    private lazy var monoFont = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular)
 
     public init(
         theme: StylingTheme = .system,
@@ -204,6 +202,7 @@ public final class MarkdownStyler {
             let location = lineStart + indentLength
             let range = NSRange(location: location, length: concealLength)
             applyConceal(storage: storage, range: range)
+            applyIndentStyle(storage: storage, lineStart: lineStart, indentLength: indentLength)
             applyListParagraphStyle(
                 storage: storage,
                 lineStart: lineStart,
@@ -211,6 +210,7 @@ public final class MarkdownStyler {
                 hangingIndent: 0
             )
         case .complete(let indentLength, let bracketLocation, let state):
+            let indentWidth = applyIndentStyle(storage: storage, lineStart: lineStart, indentLength: indentLength)
             // Conceal "- " (bullet + space) at start.
             applyConceal(
                 storage: storage,
@@ -245,17 +245,13 @@ public final class MarkdownStyler {
             // middle char's advance is identical for `' '`, `'x'`, and `'X'`.
             // Without this the proportional system font gives different
             // advances per state, shifting the painted icon on toggle.
-            let markerFont = NSFont.monospacedSystemFont(
-                ofSize: baseFont.pointSize,
-                weight: .regular
-            )
-            storage.addAttribute(.font, value: markerFont, range: markerRange)
+            storage.addAttribute(.font, value: monoFont, range: markerRange)
 
             applyListParagraphStyle(
                 storage: storage,
                 lineStart: lineStart,
                 lineLength: lineLength,
-                hangingIndent: CGFloat(indentLength) * spaceWidth + 2 * monoCellWidth + spaceWidth
+                hangingIndent: indentWidth + 2 * monoCellWidth + spaceWidth
             )
         }
     }
@@ -343,7 +339,8 @@ public final class MarkdownStyler {
         switch shape {
         case .none:
             return
-        case .partial:
+        case .partial(let indentLength, _):
+            applyIndentStyle(storage: storage, lineStart: lineStart, indentLength: indentLength)
             // No styling on partial markers — let them render as raw text. The user
             // expects to see what they type (`1`, `1.`, `-`, etc.) until the marker
             // is complete. Concealment / clear-paint during the partial state hides
@@ -357,6 +354,7 @@ public final class MarkdownStyler {
                 hangingIndent: 0
             )
         case .complete(let indentLength, let markerLength, let kind):
+            let indentWidth = applyIndentStyle(storage: storage, lineStart: lineStart, indentLength: indentLength)
             switch kind {
             case .bullet(let depth):
                 // Marker layout is `<char><space>` (exactly 2 chars).
@@ -375,11 +373,7 @@ public final class MarkdownStyler {
                 // marker treatment above.
                 storage.removeAttribute(.marcdownConcealed, range: markerRange)
                 storage.addAttribute(.foregroundColor, value: NSColor.clear, range: markerRange)
-                let markerFont = NSFont.monospacedSystemFont(
-                    ofSize: baseFont.pointSize,
-                    weight: .regular
-                )
-                storage.addAttribute(.font, value: markerFont, range: markerRange)
+                storage.addAttribute(.font, value: monoFont, range: markerRange)
 
                 // Tag the 2-char marker range so the layout manager can paint
                 // the bullet glyph.
@@ -393,7 +387,7 @@ public final class MarkdownStyler {
                     storage: storage,
                     lineStart: lineStart,
                     lineLength: lineLength,
-                    hangingIndent: CGFloat(indentLength) * spaceWidth + CGFloat(markerLength) * monoCellWidth
+                    hangingIndent: indentWidth + CGFloat(markerLength) * monoCellWidth
                 )
             case .ordered(let number, let depth):
                 // Marker layout is `<digits>.<space>` — markerLength = digits + 2.
@@ -415,11 +409,7 @@ public final class MarkdownStyler {
                 )
                 storage.removeAttribute(.marcdownConcealed, range: markerRange)
                 storage.addAttribute(.foregroundColor, value: NSColor.clear, range: markerRange)
-                let monospaced = NSFont.monospacedSystemFont(
-                    ofSize: baseFont.pointSize,
-                    weight: .regular
-                )
-                storage.addAttribute(.font, value: monospaced, range: markerRange)
+                storage.addAttribute(.font, value: monoFont, range: markerRange)
 
                 // Tag the full marker range with the ordered kind.
                 storage.addAttribute(
@@ -432,7 +422,7 @@ public final class MarkdownStyler {
                     storage: storage,
                     lineStart: lineStart,
                     lineLength: lineLength,
-                    hangingIndent: CGFloat(indentLength) * spaceWidth + CGFloat(markerLength) * monoCellWidth
+                    hangingIndent: indentWidth + CGFloat(markerLength) * monoCellWidth
                 )
             }
         }
@@ -448,9 +438,28 @@ public final class MarkdownStyler {
         storage.addAttribute(.marcdownConcealedLogical, value: true, range: clamped)
     }
 
+    /// Leading whitespace on a list line is laid out on the marker's
+    /// monospaced grid: a space is one cell, a tab snaps to the next
+    /// two-cell stop (see `applyListParagraphStyle`). A tab and two
+    /// spaces therefore indent by exactly one level, and the returned width
+    /// is what the layout manager will actually draw, so wrapped lines can
+    /// hang under it.
+    @discardableResult
+    private func applyIndentStyle(storage: NSTextStorage, lineStart: Int, indentLength: Int) -> CGFloat {
+        guard indentLength > 0, lineStart + indentLength <= storage.length else { return 0 }
+        storage.addAttribute(.font, value: monoFont, range: NSRange(location: lineStart, length: indentLength))
+        var cells = 0
+        for i in lineStart..<(lineStart + indentLength) {
+            cells = storage.mutableString.character(at: i) == 0x09 ? (cells / 2 + 1) * 2 : cells + 1
+        }
+        return CGFloat(cells) * monoCellWidth
+    }
+
     /// List lines get 4pt of air above and hang wrapped text under the first
     /// body character. `hangingIndent` is 0 for partial markers (nothing to
-    /// hang under yet).
+    /// hang under yet). Tab stops are replaced by a fixed two-cell interval
+    /// (one bullet marker width) so a tab indent equals a two-space indent
+    /// and a child marker starts where its parent's body text starts.
     private func applyListParagraphStyle(
         storage: NSTextStorage,
         lineStart: Int,
@@ -465,6 +474,8 @@ public final class MarkdownStyler {
             style.paragraphSpacingBefore = 4
             style.firstLineHeadIndent = 0
             style.headIndent = hangingIndent
+            style.tabStops = []
+            style.defaultTabInterval = 2 * monoCellWidth
         }
     }
 
