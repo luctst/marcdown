@@ -63,7 +63,8 @@ struct IndentNormalisationTests {
             let source = "- [ ] a\n" + child
             let l = Layout(source)
             let body = (source as NSString).range(of: "foo").location
-            let head = (l.storage.attribute(.paragraphStyle, at: 8, effectiveRange: nil) as? NSParagraphStyle)?.headIndent ?? -1
+            let style = l.storage.attribute(.paragraphStyle, at: 8, effectiveRange: nil) as? NSParagraphStyle
+            let head = style?.headIndent ?? -1
             #expect(abs(head - l.x(ofCharacter: body)) < 0.5, "\(child.debugDescription)")
         }
     }
